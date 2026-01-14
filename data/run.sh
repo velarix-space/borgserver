@@ -27,8 +27,9 @@ echo "########################################################"
 
 
 # Precheck if BORG_ADMIN is set
-if [ "${BORG_APPEND_ONLY}" == "yes" ] && [ -z "${BORG_ADMIN}" ] ; then
-	echo "WARNING: BORG_APPEND_ONLY is active, but no BORG_ADMIN was specified!"
+if [ "${BORG_APPEND_ONLY}" == "yes" ] && [ -z "${BORG_ADMIN}" ] && [ "${BORG_PRUNE_ENABLED}" != "yes" ] ; then
+	echo "WARNING: BORG_APPEND_ONLY is active, but no BORG_ADMIN or BORG_PRUNE_ENABLED was specified!"
+	echo "         This means old backups will never be removed automatically."
 fi
 
 # Precheck directories & client ssh-keys
@@ -92,6 +93,75 @@ fi
 chown -R borg:borg ${BORG_DATA_DIR}
 chown borg:borg ${AUTHORIZED_KEYS_PATH}
 chmod 600 ${AUTHORIZED_KEYS_PATH}
+
+echo "########################################################"
+echo " * Setting up automatic prune..."
+
+# Setup prune functionality
+BORG_PRUNE_ENABLED=${BORG_PRUNE_ENABLED:-no}
+BORG_PRUNE_SCHEDULE=${BORG_PRUNE_SCHEDULE:-"0 3 * * *"}
+
+if [ "${BORG_PRUNE_ENABLED}" == "yes" ]; then
+    echo "  ** Prune is ENABLED"
+    echo "  ** Schedule: ${BORG_PRUNE_SCHEDULE}"
+    
+    # Check if both config file and BORG_PRUNE_KEEP_* env vars are set
+    if [ -f "${SSH_KEY_DIR}/prune.conf" ]; then
+        # Config file exists - check if any BORG_PRUNE_KEEP_* env vars are set
+        if [ -n "${BORG_PRUNE_KEEP_DAILY}" ] || [ -n "${BORG_PRUNE_KEEP_WEEKLY}" ] || [ -n "${BORG_PRUNE_KEEP_MONTHLY}" ] || [ -n "${BORG_PRUNE_KEEP_YEARLY}" ]; then
+            echo "ERROR: Both prune.conf file and BORG_PRUNE_KEEP_* environment variables are set!"
+            echo "       Please use either the config file OR environment variables, not both."
+            exit 1
+        fi
+        echo "  ** Using existing prune configuration at ${SSH_KEY_DIR}/prune.conf"
+        
+        # Validate configuration file on startup
+        echo "  ** Validating configuration file..."
+        if ! python3 /prune_config.py validate "${SSH_KEY_DIR}/prune.conf" 2>&1; then
+            echo "ERROR: Configuration file validation failed!"
+            echo "       Please fix the errors in ${SSH_KEY_DIR}/prune.conf"
+            exit 1
+        fi
+        echo "  ** Configuration validated successfully"
+    else
+        # No config file - create one from example
+        echo "  ** Creating default prune configuration at ${SSH_KEY_DIR}/prune.conf"
+        cp /prune.conf.example ${SSH_KEY_DIR}/prune.conf
+    fi
+    
+    # Make prune script and parser executable
+    chmod +x /prune.sh /prune_config.py
+    
+    # Setup cron for automatic pruning
+    mkdir -p /var/log
+    touch /var/log/borg-prune.log
+    chown borg:borg /var/log/borg-prune.log
+    
+    # Create wrapper script with environment variables
+    cat > /prune-env.sh << EOF
+#!/bin/bash
+export BORG_DATA_DIR=${BORG_DATA_DIR}
+export CONFIG_DIR=${SSH_KEY_DIR}
+export BORG_PRUNE_KEEP_DAILY=${BORG_PRUNE_KEEP_DAILY:-7}
+export BORG_PRUNE_KEEP_WEEKLY=${BORG_PRUNE_KEEP_WEEKLY:-4}
+export BORG_PRUNE_KEEP_MONTHLY=${BORG_PRUNE_KEEP_MONTHLY:--1}
+export BORG_PRUNE_KEEP_YEARLY=${BORG_PRUNE_KEEP_YEARLY:--1}
+exec /prune.sh
+EOF
+    chmod +x /prune-env.sh
+    
+    # Create cron job using the wrapper script
+    echo "${BORG_PRUNE_SCHEDULE} root /prune-env.sh" > /etc/cron.d/borg-prune
+    chmod 0644 /etc/cron.d/borg-prune
+    
+    echo "  ** Cron job installed for automatic pruning"
+    
+    # Start cron daemon
+    cron
+    echo "  ** Cron daemon started"
+else
+    echo "  ** Prune is DISABLED (set BORG_PRUNE_ENABLED=yes to enable)"
+fi
 
 echo "########################################################"
 echo " * Init done! Starting SSH-Daemon..."
