@@ -15,6 +15,11 @@ AUTHORIZED_KEYS_PATH=/home/borg/.ssh/authorized_keys
 # Append only mode?
 BORG_APPEND_ONLY=${BORG_APPEND_ONLY:=no}
 
+# Prune configuration
+BORG_PRUNE_ENABLED=${BORG_PRUNE_ENABLED:=no}
+BORG_PRUNE_SCHEDULE=${BORG_PRUNE_SCHEDULE:="0 2 * * *"}  # Default: daily at 2 AM
+BORG_PRUNE_CONFIG=${BORG_PRUNE_CONFIG:=/config/prune-config.yml}
+
 source /etc/os-release
 echo "########################################################"
 echo -n " * Docker BorgServer powered by "
@@ -27,8 +32,30 @@ echo "########################################################"
 
 
 # Precheck if BORG_ADMIN is set
-if [ "${BORG_APPEND_ONLY}" == "yes" ] && [ -z "${BORG_ADMIN}" ] ; then
-	echo "WARNING: BORG_APPEND_ONLY is active, but no BORG_ADMIN was specified!"
+if [ "${BORG_APPEND_ONLY}" == "yes" ] && [ -z "${BORG_ADMIN}" ] && [ "${BORG_PRUNE_ENABLED}" != "yes" ]; then
+	echo "WARNING: BORG_APPEND_ONLY is active, but no BORG_ADMIN was specified and pruning is not enabled!"
+fi
+
+# Validate prune configuration if pruning is enabled
+if [ "${BORG_PRUNE_ENABLED}" == "yes" ]; then
+	echo " * Prune is enabled. Validating configuration..."
+	
+	# Check if prune config exists
+	if [ ! -f "${BORG_PRUNE_CONFIG}" ]; then
+		echo "ERROR: Prune is enabled but config file not found: ${BORG_PRUNE_CONFIG}"
+		echo "Please provide a valid prune configuration file or disable pruning."
+		exit 1
+	fi
+	
+	# Validate config by running prune script in validation mode
+	export BORG_DATA_DIR
+	if ! /prune.sh --validate 2>&1 | head -5; then
+		echo "ERROR: Prune configuration validation failed!"
+		exit 1
+	fi
+	
+	echo " * Prune configuration validated successfully"
+	echo " * Prune schedule: ${BORG_PRUNE_SCHEDULE}"
 fi
 
 # Precheck directories & client ssh-keys
@@ -95,5 +122,24 @@ chmod 600 ${AUTHORIZED_KEYS_PATH}
 
 echo "########################################################"
 echo " * Init done! Starting SSH-Daemon..."
+
+# Setup cron for scheduled pruning if enabled
+if [ "${BORG_PRUNE_ENABLED}" == "yes" ]; then
+	echo " * Setting up scheduled pruning..."
+	
+	# Create cron job
+	echo "BORG_DATA_DIR=${BORG_DATA_DIR}" > /etc/cron.d/borg-prune
+	echo "BORG_PRUNE_CONFIG=${BORG_PRUNE_CONFIG}" >> /etc/cron.d/borg-prune
+	echo "${BORG_PRUNE_SCHEDULE} root /prune.sh >> /var/log/borg-prune.log 2>&1" >> /etc/cron.d/borg-prune
+	echo "" >> /etc/cron.d/borg-prune
+	
+	chmod 0644 /etc/cron.d/borg-prune
+	
+	# Start cron daemon
+	echo " * Starting cron daemon for scheduled pruning..."
+	cron
+	
+	echo " * Scheduled pruning configured with schedule: ${BORG_PRUNE_SCHEDULE}"
+fi
 
 /usr/sbin/sshd -D -e

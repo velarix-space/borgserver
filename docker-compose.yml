@@ -6,6 +6,7 @@ services:
   volumes:
    - ./backup:/backup
    - ./sshkeys:/sshkeys
+   - ./config:/config  # Mount config directory for prune configuration
   ports:
    - "2222:22"
   environment:
@@ -18,4 +19,14 @@ services:
 
    # Filename of Admins SSH-Key; has full access to all repos
    BORG_ADMIN: ""
+
+   # Enable scheduled pruning (requires BORG_APPEND_ONLY to be useful)
+   BORG_PRUNE_ENABLED: "no"
+
+   # Cron schedule for pruning (default: daily at 2 AM)
+   # Format: "minute hour day month weekday"
+   BORG_PRUNE_SCHEDULE: "0 2 * * *"
+
+   # Path to prune configuration file
+   BORG_PRUNE_CONFIG: "/config/prune-config.yml"
   restart: unless-stopped

@@ -16,7 +16,9 @@ VOLUME /backup
 ENV DEBIAN_FRONTEND=noninteractive
 
 RUN apt-get update && apt-get -y --no-install-recommends install \
-		borgbackup openssh-server && apt-get clean && \
+		borgbackup openssh-server cron wget && apt-get clean && \
+		wget -qO /usr/local/bin/yq https://github.com/mikefarah/yq/releases/latest/download/yq_linux_amd64 && \
+		chmod +x /usr/local/bin/yq && \
 		useradd -s /bin/bash -m -U borg && \
 		mkdir /home/borg/.ssh && \
 		chmod 700 /home/borg/.ssh && \
@@ -26,7 +28,9 @@ RUN apt-get update && apt-get -y --no-install-recommends install \
 		rm -rf /var/lib/apt/lists/* /var/tmp/* /tmp/*
 
 COPY ./data/run.sh /run.sh
+COPY ./data/prune.sh /prune.sh
 COPY ./data/sshd_config /etc/ssh/sshd_config
+RUN chmod +x /run.sh /prune.sh
 
 # Default SSH-Port for clients
 EXPOSE 22

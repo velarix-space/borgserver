@@ -71,6 +71,50 @@ borg prune --keep-last 100 --keep-weekly 1 (...) borgserver:/clientA/clientA
 ```
 
 
+#### BORG_PRUNE_ENABLED
+When set to **"yes"**, enables scheduled automatic pruning of all repositories. This is useful when *BORG_APPEND_ONLY* is active, as it allows automatic cleanup without requiring manual intervention or BORG_ADMIN access.
+
+Pruning rules are configured via a YAML configuration file (see BORG_PRUNE_CONFIG below).
+
+**Note**: When pruning is enabled, the container will also run `borg compact` after each prune operation to reclaim disk space.
+
+##### Example
+```
+docker run --rm -e BORG_APPEND_ONLY="yes" -e BORG_PRUNE_ENABLED="yes" \
+  -v ./config:/config (...) nold360/borgserver
+```
+
+
+#### BORG_PRUNE_SCHEDULE
+Sets the cron schedule for automatic pruning. Only takes effect when *BORG_PRUNE_ENABLED* is set to "yes".
+
+Default: `"0 2 * * *"` (daily at 2:00 AM)
+
+The schedule follows standard cron format: `minute hour day month weekday`
+
+##### Examples
+```
+# Run pruning every 6 hours
+BORG_PRUNE_SCHEDULE="0 */6 * * *"
+
+# Run pruning weekly on Sunday at 3 AM
+BORG_PRUNE_SCHEDULE="0 3 * * 0"
+
+# Run pruning monthly on the 1st at midnight
+BORG_PRUNE_SCHEDULE="0 0 1 * *"
+```
+
+
+#### BORG_PRUNE_CONFIG
+Path to the YAML configuration file that defines pruning rules.
+
+Default: `/config/prune-config.yml`
+
+The configuration file must exist and be valid when *BORG_PRUNE_ENABLED* is set to "yes", otherwise the container will fail to start.
+
+See the [Prune Configuration](#prune-configuration) section below for details on the configuration file format.
+
+
 #### PUID
 Used to set the user id of the `borg` user inside the container. This can be useful when the container has to access resources on the host with a specific user id.
 
@@ -108,6 +152,66 @@ This directory will be automaticly created on first start. Also run.sh will copy
 
 #### /backup
 In this directory will borg write all the client data to. It's best to start with an empty directory.
+
+#### /config
+This directory is used for configuration files, particularly the prune configuration file when scheduled pruning is enabled.
+
+When *BORG_PRUNE_ENABLED* is set to "yes", you must mount this volume and provide a `prune-config.yml` file.
+
+
+### Prune Configuration
+When scheduled pruning is enabled (*BORG_PRUNE_ENABLED=yes*), you need to provide a YAML configuration file that defines the retention rules for your repositories.
+
+#### Configuration File Format
+The configuration file has two main sections:
+
+1. **defaults**: Global retention rules applied to all repositories unless overridden
+2. **clients**: Per-client overrides for specific repositories
+
+##### Example Configuration
+```yaml
+# Global defaults (applied to all clients unless overridden)
+# Use -1 for month and year to keep all archives from those periods
+defaults:
+  keep_hourly: 24      # Keep hourly backups for the last 24 hours
+  keep_daily: 7        # Keep daily backups for the last 7 days
+  keep_weekly: 4       # Keep weekly backups for the last 4 weeks
+  keep_monthly: -1     # Keep all monthly backups (default)
+  keep_yearly: -1      # Keep all yearly backups (default)
+
+# Per-client prune rules (overrides defaults)
+# The key must match the SSH key filename in /sshkeys/clients/
+clients:
+  # Custom rules for a specific client
+  webserver.example.com:
+    keep_hourly: 48
+    keep_daily: 14
+    keep_weekly: 8
+    keep_monthly: 6
+    keep_yearly: 2
+  
+  # Another client using mostly defaults, but keeping 12 months
+  backup-client:
+    keep_monthly: 12
+```
+
+An example configuration file is available in the repository at `data/prune-config.example.yml`.
+
+#### Retention Rules
+- **keep_hourly**: Number of hourly backups to keep
+- **keep_daily**: Number of daily backups to keep
+- **keep_weekly**: Number of weekly backups to keep
+- **keep_monthly**: Number of monthly backups to keep (-1 to keep all)
+- **keep_yearly**: Number of yearly backups to keep (-1 to keep all)
+
+Setting a value to 0 or omitting it means that retention rule won't be applied. Setting to -1 (for monthly/yearly) keeps all archives in that category.
+
+#### How It Works
+1. The container validates the configuration file on startup
+2. At the scheduled time (defined by *BORG_PRUNE_SCHEDULE*), the prune script runs
+3. For each repository, it applies the retention rules (client-specific or defaults)
+4. After pruning, it runs `borg compact` to reclaim disk space
+5. All operations are logged to `/var/log/borg-prune.log` inside the container
 
 
 ## Example Setup
