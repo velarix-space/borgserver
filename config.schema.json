@@ -1,0 +1,139 @@
+{
+  "$schema": "https://json-schema.org/draft-07/schema#",
+  "title": "BorgServer Configuration",
+  "type": "object",
+  "properties": {
+    "puid": {
+      "type": "integer",
+      "description": "User ID for the borg user",
+      "default": 1000,
+      "minimum": 1
+    },
+    "pgid": {
+      "type": "integer",
+      "description": "Group ID for the borg group",
+      "default": 1000,
+      "minimum": 1
+    },
+    "borg_data_dir": {
+      "type": "string",
+      "description": "Directory where backup repositories are stored",
+      "default": "/backup"
+    },
+    "ssh_key_dir": {
+      "type": "string",
+      "description": "Directory where SSH keys are stored",
+      "default": "/sshkeys"
+    },
+    "borg_serve_args": {
+      "type": "string",
+      "description": "Additional arguments for borg serve command",
+      "default": ""
+    },
+    "borg_append_only": {
+      "type": "boolean",
+      "description": "Enable append-only mode",
+      "default": false
+    },
+    "borg_admin": {
+      "type": "string",
+      "description": "Admin client name (has full access to all repos)"
+    },
+    "prune": {
+      "type": "object",
+      "description": "Prune configuration",
+      "properties": {
+        "enabled": {
+          "type": "boolean",
+          "description": "Enable pruning",
+          "default": false
+        },
+        "schedule": {
+          "type": "string",
+          "description": "Cron schedule for pruning (e.g., '0 2 * * *' for daily at 2 AM)",
+          "default": "0 2 * * *"
+        },
+        "compact": {
+          "type": "boolean",
+          "description": "Enable compact after prune (frees up space)",
+          "default": false
+        },
+        "default_rules": {
+          "type": "object",
+          "description": "Default prune rules (applied to all clients unless overridden)",
+          "properties": {
+            "keep_last": {
+              "type": "integer",
+              "description": "Keep last N archives"
+            },
+            "keep_hourly": {
+              "type": "integer",
+              "description": "Keep N hourly archives"
+            },
+            "keep_daily": {
+              "type": "integer",
+              "description": "Keep N daily archives"
+            },
+            "keep_weekly": {
+              "type": "integer",
+              "description": "Keep N weekly archives"
+            },
+            "keep_monthly": {
+              "type": "integer",
+              "description": "Keep N monthly archives (-1 = keep all)",
+              "default": -1
+            },
+            "keep_yearly": {
+              "type": "integer",
+              "description": "Keep N yearly archives (-1 = keep all)",
+              "default": -1
+            }
+          }
+        }
+      }
+    },
+    "clients": {
+      "type": "object",
+      "description": "Client configurations",
+      "additionalProperties": {
+        "type": "object",
+        "properties": {
+          "ssh_key": {
+            "type": "string",
+            "description": "SSH public key for this client"
+          },
+          "quota": {
+            "type": "string",
+            "description": "Storage quota for this client (e.g., '100G', '1T')"
+          },
+          "prune_rules": {
+            "type": "object",
+            "description": "Client-specific prune rules (overrides default)",
+            "properties": {
+              "keep_last": {
+                "type": "integer"
+              },
+              "keep_hourly": {
+                "type": "integer"
+              },
+              "keep_daily": {
+                "type": "integer"
+              },
+              "keep_weekly": {
+                "type": "integer"
+              },
+              "keep_monthly": {
+                "type": "integer",
+                "default": -1
+              },
+              "keep_yearly": {
+                "type": "integer",
+                "default": -1
+              }
+            }
+          }
+        }
+      }
+    }
+  }
+}

@@ -2,7 +2,122 @@
 Debian based container image, running openssh-daemon only accessable by user named "borg" using SSH-Publickey Auth & "borgbackup" as client. Backup-Repositoriees, client's SSH-Keys & SSHd's Hostkeys will be stored in persistent storage.
 For every ssh-key added, a own borg-repository will be created.
 
+**NEW**: BorgServer now features a C# entry point with configuration file support, automatic pruning, and quota management!
+
 **NOTE: I will assume that you know, what a ssh-key is and how to generate & use it. If not, you might want to start here: [Arch Wiki](https://wiki.archlinux.org/index.php/SSH_Keys)**
+
+## Configuration File
+
+BorgServer can now be configured using a JSON configuration file. If no configuration file is provided, sensible defaults are used.
+
+### Config File Location
+- Default location: `/config/borgserver.json`
+- Can be overridden with `BORGSERVER_CONFIG` environment variable
+
+### Example Configuration
+See [config.example.json](./config.example.json) for a complete example.
+
+```json
+{
+  "puid": 1000,
+  "pgid": 1000,
+  "borg_data_dir": "/backup",
+  "ssh_key_dir": "/sshkeys",
+  "borg_append_only": true,
+  "borg_admin": "admin_client",
+  "prune": {
+    "enabled": true,
+    "schedule": "0 2 * * *",
+    "compact": true,
+    "default_rules": {
+      "keep_daily": 7,
+      "keep_weekly": 4,
+      "keep_monthly": -1,
+      "keep_yearly": -1
+    }
+  },
+  "clients": {
+    "webserver": {
+      "ssh_key": "ssh-rsa AAAAB3NzaC1yc2E... webserver@example.com",
+      "quota": "100G",
+      "prune_rules": {
+        "keep_daily": 14,
+        "keep_weekly": 8,
+        "keep_monthly": 12,
+        "keep_yearly": 5
+      }
+    }
+  }
+}
+```
+
+### Configuration Options
+
+#### Basic Settings
+- `puid` (integer, default: 1000): User ID for the borg user
+- `pgid` (integer, default: 1000): Group ID for the borg group
+- `borg_data_dir` (string, default: "/backup"): Directory for backup repositories
+- `ssh_key_dir` (string, default: "/sshkeys"): Directory for SSH keys
+- `borg_serve_args` (string, default: ""): Additional arguments for borg serve
+- `borg_append_only` (boolean, default: false): Enable append-only mode
+- `borg_admin` (string): Admin client name with full access to all repos
+
+#### Prune Configuration
+- `prune.enabled` (boolean, default: false): Enable automatic pruning
+- `prune.schedule` (string, default: "0 2 * * *"): Cron schedule for pruning
+- `prune.compact` (boolean, default: false): Run `borg compact` after pruning to free space
+- `prune.default_rules`: Default prune rules for all clients
+  - `keep_last`: Keep last N archives
+  - `keep_hourly`: Keep N hourly archives
+  - `keep_daily`: Keep N daily archives
+  - `keep_weekly`: Keep N weekly archives
+  - `keep_monthly`: Keep N monthly archives (-1 = keep all, default: -1)
+  - `keep_yearly`: Keep N yearly archives (-1 = keep all, default: -1)
+
+#### Client Configuration
+You can configure individual clients with:
+- `ssh_key`: SSH public key (alternative to file-based keys)
+- `quota`: Storage quota (e.g., "100G", "1T")
+- `prune_rules`: Client-specific prune rules (overrides default)
+
+### Schema Validation
+The configuration file is validated against a schema. If you use invalid property names (typos), the server will fail to start with a clear error message.
+
+### Using Config File with Docker
+
+```bash
+docker run -td \
+  -p 2222:22 \
+  --volume ./borg/config:/config \
+  --volume ./borg/sshkeys:/sshkeys \
+  --volume ./borg/backup:/backup \
+  nold360/borgserver:latest
+```
+
+## Automatic Pruning
+
+BorgServer now supports automatic pruning of old backups:
+
+1. **Enable pruning** in your config file
+2. **Set a schedule** using cron syntax (e.g., "0 2 * * *" for daily at 2 AM)
+3. **Configure prune rules** globally or per-client
+4. **Optional: Enable compact** to free up disk space after pruning
+
+Pruning works with `BORG_APPEND_ONLY` mode, allowing you to keep repositories secure while still cleaning up old backups.
+
+## Storage Quotas
+
+You can now set storage quotas for individual clients using the `quota` field in the client configuration. Quotas are applied automatically when repositories are detected.
+
+```json
+{
+  "clients": {
+    "webserver": {
+      "quota": "100G"
+    }
+  }
+}
+```
 
 ## Quick Example
 Here is a quick example how to configure & run this image:

@@ -1,0 +1,37 @@
+{
+  "$schema": "./config.schema.json",
+  "puid": 1000,
+  "pgid": 1000,
+  "borg_data_dir": "/backup",
+  "ssh_key_dir": "/sshkeys",
+  "borg_serve_args": "",
+  "borg_append_only": true,
+  "borg_admin": "admin_client",
+  "prune": {
+    "enabled": true,
+    "schedule": "0 2 * * *",
+    "compact": true,
+    "default_rules": {
+      "keep_daily": 7,
+      "keep_weekly": 4,
+      "keep_monthly": -1,
+      "keep_yearly": -1
+    }
+  },
+  "clients": {
+    "webserver": {
+      "ssh_key": "ssh-rsa AAAAB3NzaC1yc2EAAAADAQABAAABAQC... webserver@example.com",
+      "quota": "100G",
+      "prune_rules": {
+        "keep_daily": 14,
+        "keep_weekly": 8,
+        "keep_monthly": 12,
+        "keep_yearly": 5
+      }
+    },
+    "laptop": {
+      "ssh_key": "ssh-rsa AAAAB3NzaC1yc2EAAAADAQABAAABAQD... laptop@example.com",
+      "quota": "50G"
+    }
+  }
+}
