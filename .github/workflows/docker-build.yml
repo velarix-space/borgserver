@@ -1,0 +1,102 @@
+name: Docker Build and Publish
+
+on:
+  pull_request:
+    branches:
+      - main
+      - master
+  push:
+    branches:
+      - main
+      - master
+    tags:
+      - '*'
+  workflow_dispatch:
+
+env:
+  DOCKER_HUB_REPO: nold360/borgserver
+  GHCR_REPO: ghcr.io/velarix-space/borgserver
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        include:
+          - base: unstable-slim
+            tags: unstable
+          - base: trixie-slim
+            tags: trixie,1.4,latest
+          - base: bookworm-slim
+            tags: bookworm,1.2,oldstable
+    
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up QEMU
+        uses: docker/setup-qemu-action@v3
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Log in to Docker Hub
+        if: github.event_name != 'pull_request'
+        uses: docker/login-action@v3
+        with:
+          username: ${{ secrets.DOCKER_USERNAME }}
+          password: ${{ secrets.DOCKER_PASSWORD }}
+
+      - name: Log in to GitHub Container Registry
+        if: github.event_name != 'pull_request'
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Prepare tags
+        id: tags
+        run: |
+          TAGS="${{ matrix.tags }}"
+          DOCKER_HUB_TAGS=""
+          GHCR_TAGS=""
+          
+          IFS=',' read -ra TAG_ARRAY <<< "$TAGS"
+          for tag in "${TAG_ARRAY[@]}"; do
+            DOCKER_HUB_TAGS="${DOCKER_HUB_TAGS},${{ env.DOCKER_HUB_REPO }}:${tag}"
+            GHCR_TAGS="${GHCR_TAGS},${{ env.GHCR_REPO }}:${tag}"
+          done
+          
+          # Remove leading comma
+          DOCKER_HUB_TAGS="${DOCKER_HUB_TAGS:1}"
+          GHCR_TAGS="${GHCR_TAGS:1}"
+          ALL_TAGS="${DOCKER_HUB_TAGS},${GHCR_TAGS}"
+          
+          echo "all_tags=${ALL_TAGS}" >> $GITHUB_OUTPUT
+
+      - name: Build Docker image (PR)
+        if: github.event_name == 'pull_request'
+        uses: docker/build-push-action@v5
+        with:
+          context: .
+          platforms: linux/386,linux/amd64,linux/arm/v7,linux/arm64/v8
+          push: false
+          build-args: |
+            BASE_IMAGE=debian:${{ matrix.base }}
+          tags: ${{ steps.tags.outputs.all_tags }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+      - name: Build and push Docker image
+        if: github.event_name != 'pull_request'
+        uses: docker/build-push-action@v5
+        with:
+          context: .
+          platforms: linux/386,linux/amd64,linux/arm/v7,linux/arm64/v8
+          push: true
+          build-args: |
+            BASE_IMAGE=debian:${{ matrix.base }}
+          tags: ${{ steps.tags.outputs.all_tags }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
