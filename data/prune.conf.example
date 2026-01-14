@@ -28,8 +28,8 @@
 [default]
 keep_daily = 7
 keep_weekly = 4
-keep_monthly = 6
-keep_yearly = 1
+keep_monthly = -1
+keep_yearly = -1
 enabled = yes
 
 # Example client-specific configuration:

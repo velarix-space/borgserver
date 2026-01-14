@@ -105,12 +105,19 @@ if [ "${BORG_PRUNE_ENABLED}" == "yes" ]; then
     echo "  ** Prune is ENABLED"
     echo "  ** Schedule: ${BORG_PRUNE_SCHEDULE}"
     
-    # Create prune config if it doesn't exist
-    if [ ! -f "${SSH_KEY_DIR}/prune.conf" ]; then
+    # Check if both config file and BORG_PRUNE_KEEP_* env vars are set
+    if [ -f "${SSH_KEY_DIR}/prune.conf" ]; then
+        # Config file exists - check if any BORG_PRUNE_KEEP_* env vars are set
+        if [ -n "${BORG_PRUNE_KEEP_DAILY}" ] || [ -n "${BORG_PRUNE_KEEP_WEEKLY}" ] || [ -n "${BORG_PRUNE_KEEP_MONTHLY}" ] || [ -n "${BORG_PRUNE_KEEP_YEARLY}" ]; then
+            echo "ERROR: Both prune.conf file and BORG_PRUNE_KEEP_* environment variables are set!"
+            echo "       Please use either the config file OR environment variables, not both."
+            exit 1
+        fi
+        echo "  ** Using existing prune configuration at ${SSH_KEY_DIR}/prune.conf"
+    else
+        # No config file - create one from example or use env vars
         echo "  ** Creating default prune configuration at ${SSH_KEY_DIR}/prune.conf"
         cp /prune.conf.example ${SSH_KEY_DIR}/prune.conf
-    else
-        echo "  ** Using existing prune configuration at ${SSH_KEY_DIR}/prune.conf"
     fi
     
     # Make prune script executable
@@ -128,8 +135,8 @@ export BORG_DATA_DIR=${BORG_DATA_DIR}
 export CONFIG_DIR=${SSH_KEY_DIR}
 export BORG_PRUNE_KEEP_DAILY=${BORG_PRUNE_KEEP_DAILY:-7}
 export BORG_PRUNE_KEEP_WEEKLY=${BORG_PRUNE_KEEP_WEEKLY:-4}
-export BORG_PRUNE_KEEP_MONTHLY=${BORG_PRUNE_KEEP_MONTHLY:-6}
-export BORG_PRUNE_KEEP_YEARLY=${BORG_PRUNE_KEEP_YEARLY:-1}
+export BORG_PRUNE_KEEP_MONTHLY=${BORG_PRUNE_KEEP_MONTHLY:--1}
+export BORG_PRUNE_KEEP_YEARLY=${BORG_PRUNE_KEEP_YEARLY:--1}
 exec /prune.sh
 EOF
     chmod +x /prune-env.sh

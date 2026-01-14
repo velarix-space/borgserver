@@ -78,6 +78,7 @@ This is the recommended approach for automatic cleanup as it provides:
 - Per-client pruning rules via configuration file
 - Automatic scheduled pruning via cron
 - Server-side execution without client access
+- Automatic space reclamation via `borg compact` after each prune
 
 ##### Example
 ```
@@ -96,10 +97,14 @@ docker run --rm -e BORG_PRUNE_ENABLED="yes" -e BORG_PRUNE_SCHEDULE="0 2 * * 0" (
 #### BORG_PRUNE_KEEP_DAILY, BORG_PRUNE_KEEP_WEEKLY, BORG_PRUNE_KEEP_MONTHLY, BORG_PRUNE_KEEP_YEARLY
 Default retention policies for automatic pruning. These are used when no `/sshkeys/prune.conf` file exists.
 
+**Important**: If a `/sshkeys/prune.conf` file exists, these environment variables are ignored and will cause the container to fail startup if set. Use either the config file OR environment variables, not both.
+
 - `BORG_PRUNE_KEEP_DAILY`: Number of daily backups to keep (default: 7)
 - `BORG_PRUNE_KEEP_WEEKLY`: Number of weekly backups to keep (default: 4)
-- `BORG_PRUNE_KEEP_MONTHLY`: Number of monthly backups to keep (default: 6)
-- `BORG_PRUNE_KEEP_YEARLY`: Number of yearly backups to keep (default: 1)
+- `BORG_PRUNE_KEEP_MONTHLY`: Number of monthly backups to keep (default: -1, disabled)
+- `BORG_PRUNE_KEEP_YEARLY`: Number of yearly backups to keep (default: -1, disabled)
+
+Set to `-1` to disable a specific retention period.
 
 ##### Example
 ```
@@ -115,14 +120,16 @@ docker run --rm \
 #### Per-Client Prune Configuration
 For more granular control, you can create a `/sshkeys/prune.conf` file with client-specific retention policies. This file will be automatically created with default values when `BORG_PRUNE_ENABLED=yes` is set for the first time.
 
+**Note**: When using a config file, do not set `BORG_PRUNE_KEEP_*` environment variables as this will cause the container to fail startup.
+
 Example `/sshkeys/prune.conf`:
 ```ini
 # Default retention for all clients
 [default]
 keep_daily = 7
 keep_weekly = 4
-keep_monthly = 6
-keep_yearly = 1
+keep_monthly = -1
+keep_yearly = -1
 enabled = yes
 
 # Production server - keep more backups

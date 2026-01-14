@@ -11,8 +11,8 @@ LOG_FILE=${PRUNE_LOG_FILE:-/var/log/borg-prune.log}
 # Default prune options from environment (used if no config file exists)
 DEFAULT_KEEP_DAILY=${BORG_PRUNE_KEEP_DAILY:-7}
 DEFAULT_KEEP_WEEKLY=${BORG_PRUNE_KEEP_WEEKLY:-4}
-DEFAULT_KEEP_MONTHLY=${BORG_PRUNE_KEEP_MONTHLY:-6}
-DEFAULT_KEEP_YEARLY=${BORG_PRUNE_KEEP_YEARLY:-1}
+DEFAULT_KEEP_MONTHLY=${BORG_PRUNE_KEEP_MONTHLY:--1}
+DEFAULT_KEEP_YEARLY=${BORG_PRUNE_KEEP_YEARLY:--1}
 
 log() {
     echo "[$(date '+%Y-%m-%d %H:%M:%S')] $*" | tee -a "${LOG_FILE}"
@@ -73,8 +73,8 @@ get_client_prune_config() {
                     # Validate values based on key type
                     case "$key_lower" in
                         keep_daily|keep_weekly|keep_monthly|keep_yearly)
-                            # Must be numeric
-                            if ! [[ "$value" =~ ^[0-9]+$ ]]; then
+                            # Must be numeric or -1 (which means disabled)
+                            if ! [[ "$value" =~ ^-?[0-9]+$ ]]; then
                                 log "WARNING: Invalid numeric value '$value' for $key, skipping"
                                 continue
                             fi
@@ -180,17 +180,18 @@ prune_client_repo() {
     # Build prune command
     local prune_cmd="borg prune --list --stats"
     
-    # Validate and add retention options (check if numeric)
-    if [ -n "${CLIENT_KEEP_DAILY}" ] && [[ "${CLIENT_KEEP_DAILY}" =~ ^[0-9]+$ ]] && [ "${CLIENT_KEEP_DAILY}" -gt 0 ]; then
+    # Validate and add retention options (check if numeric and greater than 0)
+    # -1 means disabled, so we skip those
+    if [ -n "${CLIENT_KEEP_DAILY}" ] && [[ "${CLIENT_KEEP_DAILY}" =~ ^-?[0-9]+$ ]] && [ "${CLIENT_KEEP_DAILY}" -gt 0 ]; then
         prune_cmd="${prune_cmd} --keep-daily=${CLIENT_KEEP_DAILY}"
     fi
-    if [ -n "${CLIENT_KEEP_WEEKLY}" ] && [[ "${CLIENT_KEEP_WEEKLY}" =~ ^[0-9]+$ ]] && [ "${CLIENT_KEEP_WEEKLY}" -gt 0 ]; then
+    if [ -n "${CLIENT_KEEP_WEEKLY}" ] && [[ "${CLIENT_KEEP_WEEKLY}" =~ ^-?[0-9]+$ ]] && [ "${CLIENT_KEEP_WEEKLY}" -gt 0 ]; then
         prune_cmd="${prune_cmd} --keep-weekly=${CLIENT_KEEP_WEEKLY}"
     fi
-    if [ -n "${CLIENT_KEEP_MONTHLY}" ] && [[ "${CLIENT_KEEP_MONTHLY}" =~ ^[0-9]+$ ]] && [ "${CLIENT_KEEP_MONTHLY}" -gt 0 ]; then
+    if [ -n "${CLIENT_KEEP_MONTHLY}" ] && [[ "${CLIENT_KEEP_MONTHLY}" =~ ^-?[0-9]+$ ]] && [ "${CLIENT_KEEP_MONTHLY}" -gt 0 ]; then
         prune_cmd="${prune_cmd} --keep-monthly=${CLIENT_KEEP_MONTHLY}"
     fi
-    if [ -n "${CLIENT_KEEP_YEARLY}" ] && [[ "${CLIENT_KEEP_YEARLY}" =~ ^[0-9]+$ ]] && [ "${CLIENT_KEEP_YEARLY}" -gt 0 ]; then
+    if [ -n "${CLIENT_KEEP_YEARLY}" ] && [[ "${CLIENT_KEEP_YEARLY}" =~ ^-?[0-9]+$ ]] && [ "${CLIENT_KEEP_YEARLY}" -gt 0 ]; then
         prune_cmd="${prune_cmd} --keep-yearly=${CLIENT_KEEP_YEARLY}"
     fi
     # Validate keep_within format: digits followed by d, w, m, or y (borg supported time units)
@@ -205,6 +206,15 @@ prune_client_repo() {
     # Execute prune command
     if su - borg -c "${prune_cmd}" >> "${LOG_FILE}" 2>&1; then
         log "SUCCESS: Prune completed for client '${client_name}'"
+        
+        # Run compact to free space after prune
+        log "INFO: Running compact for client '${client_name}' at ${repo_path}"
+        local compact_cmd="borg compact ${repo_path}"
+        if su - borg -c "${compact_cmd}" >> "${LOG_FILE}" 2>&1; then
+            log "SUCCESS: Compact completed for client '${client_name}'"
+        else
+            log "WARNING: Compact failed for client '${client_name}'"
+        fi
         return 0
     else
         log "ERROR: Prune failed for client '${client_name}'"
