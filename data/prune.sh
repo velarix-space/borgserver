@@ -59,12 +59,58 @@ get_client_prune_config() {
                     key=$(echo "$key" | xargs)
                     value=$(echo "$value" | xargs)
                     
+                    # Sanitize key to prevent code injection - only allow alphanumeric and underscore
+                    if [[ ! "$key" =~ ^[a-zA-Z_][a-zA-Z0-9_]*$ ]]; then
+                        continue
+                    fi
+                    
+                    # Sanitize value to prevent code injection
+                    value=$(printf '%s' "$value" | sed "s/['\"]//g")
+                    
                     if [ "$section_found" = true ] && [ "$section" == "$client_name" ]; then
                         # Client-specific config takes precedence
-                        eval "CLIENT_${key^^}='$value'"
-                    elif [ "$section" == "default" ] && [ -z "$(eval echo \$CLIENT_${key^^})" ]; then
+                        case "$key" in
+                            keep_daily|KEEP_DAILY)
+                                CLIENT_KEEP_DAILY="$value"
+                                ;;
+                            keep_weekly|KEEP_WEEKLY)
+                                CLIENT_KEEP_WEEKLY="$value"
+                                ;;
+                            keep_monthly|KEEP_MONTHLY)
+                                CLIENT_KEEP_MONTHLY="$value"
+                                ;;
+                            keep_yearly|KEEP_YEARLY)
+                                CLIENT_KEEP_YEARLY="$value"
+                                ;;
+                            keep_within|KEEP_WITHIN)
+                                CLIENT_KEEP_WITHIN="$value"
+                                ;;
+                            enabled|ENABLED)
+                                CLIENT_ENABLED="$value"
+                                ;;
+                        esac
+                    elif [ "$section" == "default" ]; then
                         # Use default values if client-specific not set
-                        eval "CLIENT_${key^^}='$value'"
+                        case "$key" in
+                            keep_daily|KEEP_DAILY)
+                                [ -z "$CLIENT_KEEP_DAILY" ] && CLIENT_KEEP_DAILY="$value"
+                                ;;
+                            keep_weekly|KEEP_WEEKLY)
+                                [ -z "$CLIENT_KEEP_WEEKLY" ] && CLIENT_KEEP_WEEKLY="$value"
+                                ;;
+                            keep_monthly|KEEP_MONTHLY)
+                                [ -z "$CLIENT_KEEP_MONTHLY" ] && CLIENT_KEEP_MONTHLY="$value"
+                                ;;
+                            keep_yearly|KEEP_YEARLY)
+                                [ -z "$CLIENT_KEEP_YEARLY" ] && CLIENT_KEEP_YEARLY="$value"
+                                ;;
+                            keep_within|KEEP_WITHIN)
+                                [ -z "$CLIENT_KEEP_WITHIN" ] && CLIENT_KEEP_WITHIN="$value"
+                                ;;
+                            enabled|ENABLED)
+                                [ -z "$CLIENT_ENABLED" ] && CLIENT_ENABLED="$value"
+                                ;;
+                        esac
                     fi
                 fi
             fi
@@ -98,7 +144,7 @@ prune_client_repo() {
     # Check if pruning is enabled for this client
     if [ "${CLIENT_ENABLED}" != "yes" ]; then
         log "INFO: Pruning disabled for client '${client_name}', skipping"
-        return 0
+        return 2  # Return special code for disabled clients
     fi
     
     log "INFO: Starting prune for client '${client_name}' at ${repo_path}"
@@ -150,14 +196,14 @@ main() {
     for client_dir in "${BORG_DATA_DIR}"/*; do
         if [ -d "${client_dir}" ]; then
             client_name=$(basename "${client_dir}")
-            if prune_client_repo "${client_name}"; then
+            prune_client_repo "${client_name}"
+            ret=$?
+            if [ $ret -eq 0 ]; then
                 ((success_count++))
+            elif [ $ret -eq 2 ]; then
+                ((skip_count++))
             else
-                if [ "${CLIENT_ENABLED}" == "no" ]; then
-                    ((skip_count++))
-                else
-                    ((fail_count++))
-                fi
+                ((fail_count++))
             fi
         fi
     done

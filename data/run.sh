@@ -121,8 +121,10 @@ if [ "${BORG_PRUNE_ENABLED}" == "yes" ]; then
     touch /var/log/borg-prune.log
     chown borg:borg /var/log/borg-prune.log
     
-    # Create cron job
-    echo "${BORG_PRUNE_SCHEDULE} root BORG_DATA_DIR=${BORG_DATA_DIR} CONFIG_DIR=${SSH_KEY_DIR} /prune.sh" > /etc/cron.d/borg-prune
+    # Create cron job with all necessary environment variables
+    cat > /etc/cron.d/borg-prune << EOF
+${BORG_PRUNE_SCHEDULE} root BORG_DATA_DIR=${BORG_DATA_DIR} CONFIG_DIR=${SSH_KEY_DIR} BORG_PRUNE_KEEP_DAILY=${BORG_PRUNE_KEEP_DAILY:-7} BORG_PRUNE_KEEP_WEEKLY=${BORG_PRUNE_KEEP_WEEKLY:-4} BORG_PRUNE_KEEP_MONTHLY=${BORG_PRUNE_KEEP_MONTHLY:-6} BORG_PRUNE_KEEP_YEARLY=${BORG_PRUNE_KEEP_YEARLY:-1} /prune.sh
+EOF
     chmod 0644 /etc/cron.d/borg-prune
     
     echo "  ** Cron job installed for automatic pruning"
