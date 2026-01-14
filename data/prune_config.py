@@ -5,6 +5,7 @@ Parses and validates YAML configuration for borg prune operations.
 """
 
 import sys
+import re
 import yaml
 import json
 from pathlib import Path
@@ -52,7 +53,6 @@ def validate_value(key: str, value: Any, schema_def: Dict[str, Any]) -> Any:
         if not isinstance(value, str):
             raise ConfigError(f"Field '{key}' must be a string, got {type(value).__name__}")
         if "pattern" in schema_def:
-            import re
             if not re.match(schema_def["pattern"], value):
                 raise ConfigError(f"Field '{key}' has invalid format: {value}")
     

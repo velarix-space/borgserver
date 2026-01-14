@@ -25,17 +25,17 @@ log() {
 load_config_cache() {
     if [ -f "${CONFIG_FILE}" ]; then
         log "INFO: Loading configuration from ${CONFIG_FILE}"
-        if ! python3 "${PARSER_SCRIPT}" cache "${CONFIG_FILE}" > "${CONFIG_CACHE}" 2>&1; then
+        if ! python3 "${PARSER_SCRIPT}" cache "${CONFIG_FILE}" > "${CONFIG_CACHE}.full" 2>&1; then
             log "ERROR: Failed to parse configuration file"
-            cat "${CONFIG_CACHE}"
-            rm -f "${CONFIG_CACHE}"
+            cat "${CONFIG_CACHE}.full"
+            rm -f "${CONFIG_CACHE}.full"
             exit 1
         fi
         log "INFO: Configuration cached successfully"
     else
         log "INFO: No config file found, using environment variable defaults"
         # Create a minimal cache with just defaults
-        cat > "${CONFIG_CACHE}" << EOF
+        cat > "${CONFIG_CACHE}.full" << EOF
 {
   "default": {
     "keep_daily": ${DEFAULT_KEEP_DAILY},
@@ -54,35 +54,24 @@ EOF
 get_client_prune_config() {
     local client_name=$1
     
-    # Extract client config from cache, falling back to default
-    local client_config=$(python3 -c "
-import json, sys
-with open('${CONFIG_CACHE}') as f:
-    config = json.load(f)
+    # Use Python parser to safely extract config for client
+    # This avoids injection issues by using proper argument passing
+    local output=$(python3 "${PARSER_SCRIPT}" get "${CONFIG_CACHE}.full" "${client_name}" 2>&1)
+    local ret=$?
     
-client = config.get('${client_name}', {})
-default = config.get('default', {})
-
-# Merge with defaults
-result = default.copy()
-result.update(client)
-
-# Export as shell variables
-for key, value in result.items():
-    if value is None:
-        continue
-    if isinstance(value, bool):
-        value = 'yes' if value else 'no'
-    print(f'{key.upper()}={value}')
-" 2>/dev/null)
-    
-    if [ -z "$client_config" ]; then
-        log "ERROR: Failed to get config for client '${client_name}'"
+    if [ $ret -ne 0 ]; then
+        log "ERROR: Failed to get config for client '${client_name}': ${output}"
         return 1
     fi
     
-    # Parse and export the config variables
-    eval "$client_config"
+    # Parse JSON output and set variables safely
+    KEEP_DAILY=$(echo "$output" | python3 -c "import json, sys; c=json.load(sys.stdin); print(c.get('keep_daily', ''))")
+    KEEP_WEEKLY=$(echo "$output" | python3 -c "import json, sys; c=json.load(sys.stdin); print(c.get('keep_weekly', ''))")
+    KEEP_MONTHLY=$(echo "$output" | python3 -c "import json, sys; c=json.load(sys.stdin); print(c.get('keep_monthly', ''))")
+    KEEP_YEARLY=$(echo "$output" | python3 -c "import json, sys; c=json.load(sys.stdin); print(c.get('keep_yearly', ''))")
+    KEEP_WITHIN=$(echo "$output" | python3 -c "import json, sys; c=json.load(sys.stdin); v=c.get('keep_within'); print(v if v else '')")
+    local enabled=$(echo "$output" | python3 -c "import json, sys; c=json.load(sys.stdin); print('yes' if c.get('enabled') else 'no')")
+    ENABLED="${enabled}"
 }
 
 # Function to prune a single client repository
