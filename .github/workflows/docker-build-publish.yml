@@ -1,0 +1,175 @@
+name: Build and Publish Docker Images
+
+on:
+  pull_request:
+    branches:
+      - main
+      - master
+  push:
+    branches:
+      - main
+      - master
+    tags:
+      - 'v*'
+  workflow_dispatch:
+
+env:
+  REGISTRY_DOCKERHUB: docker.io
+  REGISTRY_GHCR: ghcr.io
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - base: unstable-slim
+            tags: unstable
+          - base: trixie-slim
+            tags: trixie,1.4,latest
+          - base: bookworm-slim
+            tags: bookworm,1.2,oldstable
+
+    permissions:
+      contents: read
+      packages: write
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up QEMU
+        if: github.event_name != 'pull_request'
+        uses: docker/setup-qemu-action@v3
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Prepare tags
+        id: prepare-tags
+        run: |
+          # Split comma-separated tags and create proper tag list
+          TAGS="${{ matrix.tags }}"
+          DOCKERHUB_TAGS=""
+          GHCR_TAGS=""
+
+          IFS=',' read -ra TAG_ARRAY <<< "$TAGS"
+          for tag in "${TAG_ARRAY[@]}"; do
+            tag=$(echo "$tag" | xargs) # trim whitespace
+            DOCKERHUB_TAGS="${DOCKERHUB_TAGS}${{ github.repository }}:${tag},"
+            GHCR_TAGS="${GHCR_TAGS}ghcr.io/${{ github.repository }}:${tag},"
+          done
+
+          # Remove trailing comma
+          DOCKERHUB_TAGS=${DOCKERHUB_TAGS%,}
+          GHCR_TAGS=${GHCR_TAGS%,}
+
+          # Combine all tags
+          ALL_TAGS="${DOCKERHUB_TAGS},${GHCR_TAGS}"
+
+          echo "tags=${ALL_TAGS}" >> $GITHUB_OUTPUT
+          echo "Generated tags: ${ALL_TAGS}"
+
+      - name: Set platforms
+        id: platforms
+        run: |
+          if [ "${{ github.event_name }}" = "pull_request" ]; then
+            echo "platforms=linux/amd64" >> $GITHUB_OUTPUT
+          else
+            echo "platforms=linux/386,linux/amd64,linux/arm/v7,linux/arm64" >> $GITHUB_OUTPUT
+          fi
+
+      - name: Check Docker Hub credentials
+        if: github.event_name != 'pull_request'
+        id: dockerhub-check
+        env:
+          DOCKER_USERNAME: ${{ secrets.DOCKER_USERNAME }}
+          DOCKER_PASSWORD: ${{ secrets.DOCKER_PASSWORD }}
+        run: |
+          if [ -n "$DOCKER_USERNAME" ] && [ -n "$DOCKER_PASSWORD" ]; then
+            echo "available=true" >> $GITHUB_OUTPUT
+          else
+            echo "available=false" >> $GITHUB_OUTPUT
+            echo "Docker Hub credentials not available, will only push to GHCR"
+          fi
+
+      - name: Log in to Docker Hub
+        if: github.event_name != 'pull_request' && steps.dockerhub-check.outputs.available == 'true'
+        uses: docker/login-action@v3
+        with:
+          username: ${{ secrets.DOCKER_USERNAME }}
+          password: ${{ secrets.DOCKER_PASSWORD }}
+
+      - name: Log in to GitHub Container Registry
+        if: github.event_name != 'pull_request'
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Determine push targets
+        id: push-targets
+        env:
+          DOCKER_USERNAME: ${{ secrets.DOCKER_USERNAME }}
+          DOCKER_PASSWORD: ${{ secrets.DOCKER_PASSWORD }}
+        run: |
+          PUSH="false"
+          TAGS=""
+
+          if [ "${{ github.event_name }}" != "pull_request" ]; then
+            # Check which registries we can push to
+            HAS_DOCKERHUB="false"
+            HAS_GHCR="true"  # GITHUB_TOKEN is always available
+
+            if [ -n "$DOCKER_USERNAME" ] && [ -n "$DOCKER_PASSWORD" ]; then
+              HAS_DOCKERHUB="true"
+            fi
+
+            # Build tag list based on available registries
+            if [ "$HAS_DOCKERHUB" = "true" ] && [ "$HAS_GHCR" = "true" ]; then
+              TAGS="${{ steps.prepare-tags.outputs.tags }}"
+              PUSH="true"
+            elif [ "$HAS_DOCKERHUB" = "true" ]; then
+              # Only Docker Hub tags
+              TAGS_INPUT="${{ matrix.tags }}"
+              IFS=',' read -ra TAG_ARRAY <<< "$TAGS_INPUT"
+              for tag in "${TAG_ARRAY[@]}"; do
+                tag=$(echo "$tag" | xargs)
+                TAGS="${TAGS}${{ github.repository }}:${tag},"
+              done
+              TAGS=${TAGS%,}
+              PUSH="true"
+            elif [ "$HAS_GHCR" = "true" ]; then
+              # Only GHCR tags
+              TAGS_INPUT="${{ matrix.tags }}"
+              IFS=',' read -ra TAG_ARRAY <<< "$TAGS_INPUT"
+              for tag in "${TAG_ARRAY[@]}"; do
+                tag=$(echo "$tag" | xargs)
+                TAGS="${TAGS}ghcr.io/${{ github.repository }}:${tag},"
+              done
+              TAGS=${TAGS%,}
+              PUSH="true"
+            fi
+          fi
+
+          echo "push=${PUSH}" >> $GITHUB_OUTPUT
+          echo "tags=${TAGS}" >> $GITHUB_OUTPUT
+          echo "Push: ${PUSH}"
+          echo "Tags: ${TAGS}"
+
+      - name: Build and push Docker image
+        uses: docker/build-push-action@v5
+        with:
+          context: .
+          platforms: ${{ steps.platforms.outputs.platforms }}
+          build-args: |
+            BASE_IMAGE=debian:${{ matrix.base }}
+          push: ${{ steps.push-targets.outputs.push }}
+          tags: ${{ steps.push-targets.outputs.tags || steps.prepare-tags.outputs.tags }}
+          labels: |
+            org.opencontainers.image.source=${{ github.event.repository.html_url }}
+            org.opencontainers.image.revision=${{ github.sha }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
