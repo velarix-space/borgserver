@@ -73,9 +73,9 @@ get_client_prune_config() {
                     # Validate values based on key type
                     case "$key_lower" in
                         keep_daily|keep_weekly|keep_monthly|keep_yearly)
-                            # Must be numeric or -1 (which means disabled)
-                            if ! [[ "$value" =~ ^-?[0-9]+$ ]]; then
-                                log "WARNING: Invalid numeric value '$value' for $key, skipping"
+                            # Must be -1 (disabled) or a positive integer
+                            if ! [[ "$value" =~ ^(-1|[0-9]+)$ ]]; then
+                                log "WARNING: Invalid numeric value '$value' for $key (must be -1 or positive integer), skipping"
                                 continue
                             fi
                             ;;
@@ -182,16 +182,16 @@ prune_client_repo() {
     
     # Validate and add retention options (check if numeric and greater than 0)
     # -1 means disabled, so we skip those
-    if [ -n "${CLIENT_KEEP_DAILY}" ] && [[ "${CLIENT_KEEP_DAILY}" =~ ^-?[0-9]+$ ]] && [ "${CLIENT_KEEP_DAILY}" -gt 0 ]; then
+    if [ -n "${CLIENT_KEEP_DAILY}" ] && [[ "${CLIENT_KEEP_DAILY}" =~ ^(-1|[0-9]+)$ ]] && [ "${CLIENT_KEEP_DAILY}" -gt 0 ]; then
         prune_cmd="${prune_cmd} --keep-daily=${CLIENT_KEEP_DAILY}"
     fi
-    if [ -n "${CLIENT_KEEP_WEEKLY}" ] && [[ "${CLIENT_KEEP_WEEKLY}" =~ ^-?[0-9]+$ ]] && [ "${CLIENT_KEEP_WEEKLY}" -gt 0 ]; then
+    if [ -n "${CLIENT_KEEP_WEEKLY}" ] && [[ "${CLIENT_KEEP_WEEKLY}" =~ ^(-1|[0-9]+)$ ]] && [ "${CLIENT_KEEP_WEEKLY}" -gt 0 ]; then
         prune_cmd="${prune_cmd} --keep-weekly=${CLIENT_KEEP_WEEKLY}"
     fi
-    if [ -n "${CLIENT_KEEP_MONTHLY}" ] && [[ "${CLIENT_KEEP_MONTHLY}" =~ ^-?[0-9]+$ ]] && [ "${CLIENT_KEEP_MONTHLY}" -gt 0 ]; then
+    if [ -n "${CLIENT_KEEP_MONTHLY}" ] && [[ "${CLIENT_KEEP_MONTHLY}" =~ ^(-1|[0-9]+)$ ]] && [ "${CLIENT_KEEP_MONTHLY}" -gt 0 ]; then
         prune_cmd="${prune_cmd} --keep-monthly=${CLIENT_KEEP_MONTHLY}"
     fi
-    if [ -n "${CLIENT_KEEP_YEARLY}" ] && [[ "${CLIENT_KEEP_YEARLY}" =~ ^-?[0-9]+$ ]] && [ "${CLIENT_KEEP_YEARLY}" -gt 0 ]; then
+    if [ -n "${CLIENT_KEEP_YEARLY}" ] && [[ "${CLIENT_KEEP_YEARLY}" =~ ^(-1|[0-9]+)$ ]] && [ "${CLIENT_KEEP_YEARLY}" -gt 0 ]; then
         prune_cmd="${prune_cmd} --keep-yearly=${CLIENT_KEEP_YEARLY}"
     fi
     # Validate keep_within format: digits followed by d, w, m, or y (borg supported time units)
