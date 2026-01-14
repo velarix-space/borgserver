@@ -6,6 +6,7 @@ services:
   volumes:
    - ./backup:/backup
    - ./sshkeys:/sshkeys
+   - ./config:/config
   ports:
    - "2222:22"
   environment:
@@ -18,4 +19,7 @@ services:
 
    # Filename of Admins SSH-Key; has full access to all repos
    BORG_ADMIN: ""
+   
+   # Optional: Path to configuration file
+   # BORGSERVER_CONFIG: "/config/borgserver.json"
   restart: unless-stopped
