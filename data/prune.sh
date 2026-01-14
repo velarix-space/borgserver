@@ -67,6 +67,31 @@ get_client_prune_config() {
                     # Sanitize value to prevent code injection
                     value=$(printf '%s' "$value" | sed "s/['\"]//g")
                     
+                    # Validate values based on key type
+                    case "$key" in
+                        keep_daily|KEEP_DAILY|keep_weekly|KEEP_WEEKLY|keep_monthly|KEEP_MONTHLY|keep_yearly|KEEP_YEARLY)
+                            # Must be numeric
+                            if ! [[ "$value" =~ ^[0-9]+$ ]]; then
+                                log "WARNING: Invalid numeric value '$value' for $key, skipping"
+                                continue
+                            fi
+                            ;;
+                        keep_within|KEEP_WITHIN)
+                            # Must match time format (e.g., 14d, 2m, 1y)
+                            if ! [[ "$value" =~ ^[0-9]+[HdwmyY]$ ]]; then
+                                log "WARNING: Invalid time format '$value' for $key, skipping"
+                                continue
+                            fi
+                            ;;
+                        enabled|ENABLED)
+                            # Must be yes or no
+                            if [[ "$value" != "yes" ]] && [[ "$value" != "no" ]]; then
+                                log "WARNING: Invalid value '$value' for $key (must be 'yes' or 'no'), skipping"
+                                continue
+                            fi
+                            ;;
+                    esac
+                    
                     if [ "$section_found" = true ] && [ "$section" == "$client_name" ]; then
                         # Client-specific config takes precedence
                         case "$key" in
@@ -152,11 +177,23 @@ prune_client_repo() {
     # Build prune command
     local prune_cmd="borg prune --list --stats"
     
-    [ -n "${CLIENT_KEEP_DAILY}" ] && [ "${CLIENT_KEEP_DAILY}" -gt 0 ] && prune_cmd="${prune_cmd} --keep-daily=${CLIENT_KEEP_DAILY}"
-    [ -n "${CLIENT_KEEP_WEEKLY}" ] && [ "${CLIENT_KEEP_WEEKLY}" -gt 0 ] && prune_cmd="${prune_cmd} --keep-weekly=${CLIENT_KEEP_WEEKLY}"
-    [ -n "${CLIENT_KEEP_MONTHLY}" ] && [ "${CLIENT_KEEP_MONTHLY}" -gt 0 ] && prune_cmd="${prune_cmd} --keep-monthly=${CLIENT_KEEP_MONTHLY}"
-    [ -n "${CLIENT_KEEP_YEARLY}" ] && [ "${CLIENT_KEEP_YEARLY}" -gt 0 ] && prune_cmd="${prune_cmd} --keep-yearly=${CLIENT_KEEP_YEARLY}"
-    [ -n "${CLIENT_KEEP_WITHIN}" ] && prune_cmd="${prune_cmd} --keep-within=${CLIENT_KEEP_WITHIN}"
+    # Validate and add retention options (check if numeric)
+    if [ -n "${CLIENT_KEEP_DAILY}" ] && [[ "${CLIENT_KEEP_DAILY}" =~ ^[0-9]+$ ]] && [ "${CLIENT_KEEP_DAILY}" -gt 0 ]; then
+        prune_cmd="${prune_cmd} --keep-daily=${CLIENT_KEEP_DAILY}"
+    fi
+    if [ -n "${CLIENT_KEEP_WEEKLY}" ] && [[ "${CLIENT_KEEP_WEEKLY}" =~ ^[0-9]+$ ]] && [ "${CLIENT_KEEP_WEEKLY}" -gt 0 ]; then
+        prune_cmd="${prune_cmd} --keep-weekly=${CLIENT_KEEP_WEEKLY}"
+    fi
+    if [ -n "${CLIENT_KEEP_MONTHLY}" ] && [[ "${CLIENT_KEEP_MONTHLY}" =~ ^[0-9]+$ ]] && [ "${CLIENT_KEEP_MONTHLY}" -gt 0 ]; then
+        prune_cmd="${prune_cmd} --keep-monthly=${CLIENT_KEEP_MONTHLY}"
+    fi
+    if [ -n "${CLIENT_KEEP_YEARLY}" ] && [[ "${CLIENT_KEEP_YEARLY}" =~ ^[0-9]+$ ]] && [ "${CLIENT_KEEP_YEARLY}" -gt 0 ]; then
+        prune_cmd="${prune_cmd} --keep-yearly=${CLIENT_KEEP_YEARLY}"
+    fi
+    # Validate keep_within format (e.g., 14d, 2m, 1y)
+    if [ -n "${CLIENT_KEEP_WITHIN}" ] && [[ "${CLIENT_KEEP_WITHIN}" =~ ^[0-9]+[HdwmyY]$ ]]; then
+        prune_cmd="${prune_cmd} --keep-within=${CLIENT_KEEP_WITHIN}"
+    fi
     
     prune_cmd="${prune_cmd} ${repo_path}"
     
@@ -193,7 +230,19 @@ main() {
     local fail_count=0
     local skip_count=0
     
-    for client_dir in "${BORG_DATA_DIR}"/*; do
+    # Check if there are any directories to process
+    shopt -s nullglob
+    local dirs=("${BORG_DATA_DIR}"/*)
+    shopt -u nullglob
+    
+    if [ ${#dirs[@]} -eq 0 ]; then
+        log "INFO: No client directories found in ${BORG_DATA_DIR}"
+        log "Prune cycle completed: 0 successful, 0 failed, 0 skipped"
+        log "=========================================="
+        exit 0
+    fi
+    
+    for client_dir in "${dirs[@]}"; do
         if [ -d "${client_dir}" ]; then
             client_name=$(basename "${client_dir}")
             prune_client_repo "${client_name}"

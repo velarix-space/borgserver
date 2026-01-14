@@ -113,18 +113,29 @@ if [ "${BORG_PRUNE_ENABLED}" == "yes" ]; then
         echo "  ** Using existing prune configuration at ${SSH_KEY_DIR}/prune.conf"
     fi
     
-    # Make prune script executable
-    chmod +x /prune.sh
+    # Make prune scripts executable
+    chmod +x /prune.sh /prune-cron.sh
     
     # Setup cron for automatic pruning
     mkdir -p /var/log
     touch /var/log/borg-prune.log
     chown borg:borg /var/log/borg-prune.log
     
-    # Create cron job with all necessary environment variables
-    cat > /etc/cron.d/borg-prune << EOF
-${BORG_PRUNE_SCHEDULE} root BORG_DATA_DIR=${BORG_DATA_DIR} CONFIG_DIR=${SSH_KEY_DIR} BORG_PRUNE_KEEP_DAILY=${BORG_PRUNE_KEEP_DAILY:-7} BORG_PRUNE_KEEP_WEEKLY=${BORG_PRUNE_KEEP_WEEKLY:-4} BORG_PRUNE_KEEP_MONTHLY=${BORG_PRUNE_KEEP_MONTHLY:-6} BORG_PRUNE_KEEP_YEARLY=${BORG_PRUNE_KEEP_YEARLY:-1} /prune.sh
+    # Create wrapper script with environment variables
+    cat > /prune-env.sh << EOF
+#!/bin/bash
+export BORG_DATA_DIR=${BORG_DATA_DIR}
+export CONFIG_DIR=${SSH_KEY_DIR}
+export BORG_PRUNE_KEEP_DAILY=${BORG_PRUNE_KEEP_DAILY:-7}
+export BORG_PRUNE_KEEP_WEEKLY=${BORG_PRUNE_KEEP_WEEKLY:-4}
+export BORG_PRUNE_KEEP_MONTHLY=${BORG_PRUNE_KEEP_MONTHLY:-6}
+export BORG_PRUNE_KEEP_YEARLY=${BORG_PRUNE_KEEP_YEARLY:-1}
+exec /prune.sh
 EOF
+    chmod +x /prune-env.sh
+    
+    # Create cron job using the wrapper script
+    echo "${BORG_PRUNE_SCHEDULE} root /prune-env.sh" > /etc/cron.d/borg-prune
     chmod 0644 /etc/cron.d/borg-prune
     
     echo "  ** Cron job installed for automatic pruning"
