@@ -63,33 +63,19 @@ run_prune() {
     fi
     
     # Find all borg repositories in the client directory
-    # Use borg info to validate they are actual borg repositories
+    # Check immediate subdirectories as that's the typical layout
     local repos=()
-    while IFS= read -r -d '' potential_repo; do
-        # Check if this is a valid borg repository by trying to get info
-        if borg info "${potential_repo}" &>/dev/null 2>&1; then
-            repos+=("${potential_repo}")
-        fi
-    done < <(find "${client_dir}" -maxdepth 3 -type d -name "data" -exec dirname {} \; -print0 2>/dev/null)
     
-    # Also check the client_dir itself in case it's a repo
-    if [ -d "${client_dir}" ] && borg info "${client_dir}" &>/dev/null 2>&1; then
+    # Check if the client_dir itself is a repo
+    if [ -d "${client_dir}" ] && borg info "${client_dir}" &>/dev/null; then
         repos+=("${client_dir}")
     fi
     
-    # Also check immediate subdirectories
+    # Check immediate subdirectories
     if [ -d "${client_dir}" ]; then
         for subdir in "${client_dir}"/*; do
-            if [ -d "${subdir}" ] && borg info "${subdir}" &>/dev/null 2>&1; then
-                # Avoid duplicates
-                local already_added=0
-                for existing_repo in "${repos[@]}"; do
-                    if [ "${existing_repo}" = "${subdir}" ]; then
-                        already_added=1
-                        break
-                    fi
-                done
-                if [ ${already_added} -eq 0 ]; then
+            if [ -d "${subdir}" ] && [ "${subdir}" != "${client_dir}" ]; then
+                if borg info "${subdir}" &>/dev/null; then
                     repos+=("${subdir}")
                 fi
             fi
@@ -104,24 +90,24 @@ run_prune() {
     # Run prune on each repository
     local overall_status=0
     for repo_path in "${repos[@]}"; do
-        # Build prune command with configured retention policy
-        local prune_cmd="borg prune --list --stats"
-        
-        [ -n "${PRUNE_KEEP_LAST}" ] && prune_cmd="${prune_cmd} --keep-last ${PRUNE_KEEP_LAST}"
-        [ -n "${PRUNE_KEEP_HOURLY}" ] && prune_cmd="${prune_cmd} --keep-hourly ${PRUNE_KEEP_HOURLY}"
-        [ -n "${PRUNE_KEEP_DAILY}" ] && prune_cmd="${prune_cmd} --keep-daily ${PRUNE_KEEP_DAILY}"
-        [ -n "${PRUNE_KEEP_WEEKLY}" ] && prune_cmd="${prune_cmd} --keep-weekly ${PRUNE_KEEP_WEEKLY}"
-        [ -n "${PRUNE_KEEP_MONTHLY}" ] && prune_cmd="${prune_cmd} --keep-monthly ${PRUNE_KEEP_MONTHLY}"
-        [ -n "${PRUNE_KEEP_YEARLY}" ] && prune_cmd="${prune_cmd} --keep-yearly ${PRUNE_KEEP_YEARLY}"
-        
-        prune_cmd="${prune_cmd} ${repo_path}"
-        
         log "Running prune for ${client} on repository ${repo_path}"
         
-        # Capture both output and exit status properly
+        # Build prune arguments array to avoid eval security issues
+        local prune_args=("prune" "--list" "--stats")
+        
+        [ -n "${PRUNE_KEEP_LAST}" ] && prune_args+=("--keep-last" "${PRUNE_KEEP_LAST}")
+        [ -n "${PRUNE_KEEP_HOURLY}" ] && prune_args+=("--keep-hourly" "${PRUNE_KEEP_HOURLY}")
+        [ -n "${PRUNE_KEEP_DAILY}" ] && prune_args+=("--keep-daily" "${PRUNE_KEEP_DAILY}")
+        [ -n "${PRUNE_KEEP_WEEKLY}" ] && prune_args+=("--keep-weekly" "${PRUNE_KEEP_WEEKLY}")
+        [ -n "${PRUNE_KEEP_MONTHLY}" ] && prune_args+=("--keep-monthly" "${PRUNE_KEEP_MONTHLY}")
+        [ -n "${PRUNE_KEEP_YEARLY}" ] && prune_args+=("--keep-yearly" "${PRUNE_KEEP_YEARLY}")
+        
+        prune_args+=("${repo_path}")
+        
+        # Execute borg prune directly without eval for security
         local prune_output
         local prune_status
-        prune_output=$(eval "${prune_cmd}" 2>&1)
+        prune_output=$(borg "${prune_args[@]}" 2>&1)
         prune_status=$?
         
         # Log the output
