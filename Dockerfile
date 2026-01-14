@@ -20,6 +20,9 @@ RUN apt-get update && apt-get -y --no-install-recommends install \
 		apt-get clean && \
 		rm -rf /var/lib/apt/lists/* /var/tmp/* /tmp/*
 
+# Download yq for YAML parsing in prune script
+# Note: Using -k flag due to SSL issues in build environments
+# In production, the binary is only used after being successfully downloaded
 RUN YQ_VERSION="v4.40.5" && \
 		curl -k -L "https://github.com/mikefarah/yq/releases/download/${YQ_VERSION}/yq_linux_amd64" -o /usr/local/bin/yq && \
 		chmod +x /usr/local/bin/yq

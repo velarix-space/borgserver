@@ -47,6 +47,13 @@ if [ "${BORG_PRUNE_ENABLED}" == "yes" ]; then
 		exit 1
 	fi
 	
+	# Validate cron schedule format
+	if ! echo "${BORG_PRUNE_SCHEDULE}" | grep -qE '^[0-9*/,-]+ +[0-9*/,-]+ +[0-9*/,-]+ +[0-9*/,-]+ +[0-9*/,-]+$'; then
+		echo "ERROR: Invalid cron schedule format: ${BORG_PRUNE_SCHEDULE}"
+		echo "Expected format: 'minute hour day month weekday' (e.g., '0 2 * * *')"
+		exit 1
+	fi
+	
 	# Validate config by running prune script in validation mode
 	export BORG_DATA_DIR
 	export BORG_PRUNE_CONFIG

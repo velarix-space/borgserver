@@ -112,6 +112,12 @@ for repo_path in "${BORG_DATA_DIR}"/*; do
     
     client_name=$(basename "${repo_path}")
     
+    # Validate client name contains only safe characters
+    if ! echo "${client_name}" | grep -qE '^[a-zA-Z0-9._-]+$'; then
+        log "Skipping ${client_name} - contains unsafe characters"
+        continue
+    fi
+    
     # Skip if not a borg repository
     if [ ! -d "${repo_path}/data" ] && [ ! -d "${repo_path}/config" ]; then
         log "Skipping ${client_name} - not a borg repository"
