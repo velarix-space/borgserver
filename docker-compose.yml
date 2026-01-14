@@ -14,8 +14,15 @@ services:
 
    # If set to "yes", only the BORG_ADMIN
    # can delete/prune the other clients archives/repos
+   # However, automatic server-side pruning will run after successful backups
    BORG_APPEND_ONLY: "no"
 
    # Filename of Admins SSH-Key; has full access to all repos
    BORG_ADMIN: ""
+   
+   # Default prune retention policy (used when BORG_APPEND_ONLY is enabled)
+   BORG_PRUNE_ENABLED: "yes"
+   BORG_PRUNE_KEEP_DAILY: "7"
+   BORG_PRUNE_KEEP_WEEKLY: "4"
+   BORG_PRUNE_KEEP_MONTHLY: "6"
   restart: unless-stopped

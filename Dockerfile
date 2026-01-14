@@ -26,7 +26,11 @@ RUN apt-get update && apt-get -y --no-install-recommends install \
 		rm -rf /var/lib/apt/lists/* /var/tmp/* /tmp/*
 
 COPY ./data/run.sh /run.sh
+COPY ./data/borg-wrapper.sh /borg-wrapper.sh
 COPY ./data/sshd_config /etc/ssh/sshd_config
+
+# Make scripts executable
+RUN chmod +x /run.sh /borg-wrapper.sh
 
 # Default SSH-Port for clients
 EXPOSE 22

@@ -51,10 +51,66 @@ docker run --rm -e BORG_SERVE_ARGS="--progress --debug" (...) nold360/borgserver
 #### BORG_APPEND_ONLY
 If you want your client to be only able to append & not prune anything from their repo, set this variable to **"yes"**.
 
+**NEW**: When `BORG_APPEND_ONLY` is enabled, automatic pruning is now supported! After each successful backup session, the server will automatically run `borg prune` with configurable retention policies. This allows you to keep `BORG_APPEND_ONLY` enabled for security while still managing repository size.
+
+
+#### Automatic Prune Configuration
+When `BORG_APPEND_ONLY` is enabled, the server automatically runs `borg prune` after successful backup sessions. You can configure the retention policy using environment variables for global defaults, or per-client configuration files for client-specific rules.
+
+##### Global Default Prune Settings (Environment Variables)
+These environment variables set the default prune retention policy for all clients:
+
+- **BORG_PRUNE_ENABLED** - Enable/disable automatic pruning (default: `yes`)
+- **BORG_PRUNE_KEEP_LAST** - Number of most recent archives to keep
+- **BORG_PRUNE_KEEP_HOURLY** - Number of hourly archives to keep
+- **BORG_PRUNE_KEEP_DAILY** - Number of daily archives to keep (default: `7`)
+- **BORG_PRUNE_KEEP_WEEKLY** - Number of weekly archives to keep (default: `4`)
+- **BORG_PRUNE_KEEP_MONTHLY** - Number of monthly archives to keep (default: `6`)
+- **BORG_PRUNE_KEEP_YEARLY** - Number of yearly archives to keep
+
+##### Example with Global Prune Settings
+```
+docker run --rm \
+  -e BORG_APPEND_ONLY="yes" \
+  -e BORG_PRUNE_KEEP_DAILY="14" \
+  -e BORG_PRUNE_KEEP_WEEKLY="8" \
+  -e BORG_PRUNE_KEEP_MONTHLY="12" \
+  (...) nold360/borgserver
+```
+
+##### Per-Client Prune Configuration
+You can override the global defaults for specific clients by creating configuration files in `/sshkeys/clients/.prune/`. Each client can have their own prune policy.
+
+Create a file named `/sshkeys/clients/.prune/<client_name>.conf` with the following format:
+
+```
+# Prune configuration for client_name
+PRUNE_ENABLED=yes
+PRUNE_KEEP_DAILY=30
+PRUNE_KEEP_WEEKLY=8
+PRUNE_KEEP_MONTHLY=12
+PRUNE_KEEP_YEARLY=2
+```
+
+Example for different clients:
+```bash
+# High-frequency backups with longer retention
+echo "PRUNE_KEEP_DAILY=30" > /sshkeys/clients/.prune/production_server.conf
+echo "PRUNE_KEEP_WEEKLY=12" >> /sshkeys/clients/.prune/production_server.conf
+
+# Low-frequency backups with shorter retention  
+echo "PRUNE_KEEP_DAILY=7" > /sshkeys/clients/.prune/test_machine.conf
+echo "PRUNE_KEEP_WEEKLY=4" >> /sshkeys/clients/.prune/test_machine.conf
+
+# Disable automatic pruning for a specific client
+echo "PRUNE_ENABLED=no" > /sshkeys/clients/.prune/archive_server.conf
+```
+
 
 #### BORG_ADMIN
-When *BORG_APPEND_ONLY* is active, no client is able to prune it's repo. 
-Since you might want to cleanup the repos at some point, you can declare one client to be the borg "admin".
+When *BORG_APPEND_ONLY* is active, clients cannot manually prune their repos, but automatic server-side pruning runs after successful backups (see above). 
+
+If you need manual control or want to prune other clients' repos, you can declare one client to be the borg "admin".
 
 This client will have **full access to all repos of any client!** So he's able to add/prune/... what ever he wants.
 

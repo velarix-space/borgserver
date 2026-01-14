@@ -10,10 +10,17 @@ groupmod -o -g "$PGID" borg &>/dev/null
 BORG_DATA_DIR=/backup
 SSH_KEY_DIR=/sshkeys
 BORG_CMD='cd ${BORG_DATA_DIR}/${client_name}; borg serve --restrict-to-path ${BORG_DATA_DIR}/${client_name} ${BORG_SERVE_ARGS}'
+BORG_WRAPPER_CMD='BORG_CLIENT_NAME=${client_name} BORG_DATA_DIR=${BORG_DATA_DIR} BORG_APPEND_ONLY=${BORG_APPEND_ONLY} BORG_SERVE_CMD="cd ${BORG_DATA_DIR}/${client_name} && borg serve --restrict-to-path ${BORG_DATA_DIR}/${client_name} ${BORG_SERVE_ARGS}" /borg-wrapper.sh'
 AUTHORIZED_KEYS_PATH=/home/borg/.ssh/authorized_keys
 
 # Append only mode?
 BORG_APPEND_ONLY=${BORG_APPEND_ONLY:=no}
+
+# Default prune settings (can be overridden per-client via config files)
+BORG_PRUNE_ENABLED=${BORG_PRUNE_ENABLED:=yes}
+BORG_PRUNE_KEEP_DAILY=${BORG_PRUNE_KEEP_DAILY:=7}
+BORG_PRUNE_KEEP_WEEKLY=${BORG_PRUNE_KEEP_WEEKLY:=4}
+BORG_PRUNE_KEEP_MONTHLY=${BORG_PRUNE_KEEP_MONTHLY:=6}
 
 source /etc/os-release
 echo "########################################################"
@@ -59,6 +66,18 @@ done
 echo "########################################################"
 echo " * Starting SSH-Key import..."
 
+# Create prune config directory
+mkdir -p ${SSH_KEY_DIR}/clients/.prune 2>/dev/null
+
+# Export prune environment variables so wrapper script can access them
+export BORG_PRUNE_ENABLED
+export BORG_PRUNE_KEEP_LAST
+export BORG_PRUNE_KEEP_HOURLY
+export BORG_PRUNE_KEEP_DAILY
+export BORG_PRUNE_KEEP_WEEKLY
+export BORG_PRUNE_KEEP_MONTHLY
+export BORG_PRUNE_KEEP_YEARLY
+
 # Add every key to borg-users authorized_keys
 rm ${AUTHORIZED_KEYS_PATH} &>/dev/null
 for keyfile in $(find "${SSH_KEY_DIR}/clients" ! -regex '.*/\..*' -a -type f); do
@@ -67,13 +86,15 @@ for keyfile in $(find "${SSH_KEY_DIR}/clients" ! -regex '.*/\..*' -a -type f); d
     echo "  ** Adding client ${client_name} with repo path ${BORG_DATA_DIR}/${client_name}"
 
 	# If client is $BORG_ADMIN unset $client_name, so path restriction equals $BORG_DATA_DIR
-	# Otherwise add --append-only, if enabled
+	# Otherwise add --append-only, if enabled, and use wrapper for automatic pruning
 	borg_cmd=${BORG_CMD}
 	if [ "${client_name}" == "${BORG_ADMIN}" ] ; then
 		echo "   ** Client '${client_name}' is BORG_ADMIN! **"
 		unset client_name
 	elif [ "${BORG_APPEND_ONLY}" == "yes" ] ; then
-		borg_cmd="${BORG_CMD} --append-only"
+		# Use wrapper script for append-only mode to enable automatic pruning
+		borg_cmd="${BORG_WRAPPER_CMD} --append-only"
+		echo "   ** Auto-prune enabled for '${client_name}' **"
 	fi
 
   echo -n "restrict,command=\"$(eval echo -n \"${borg_cmd}\")\" " >> ${AUTHORIZED_KEYS_PATH}
