@@ -118,39 +118,39 @@ docker run --rm \
 ```
 
 #### Per-Client Prune Configuration
-For more granular control, you can create a `/sshkeys/prune.conf` file with client-specific retention policies. This file will be automatically created with default values when `BORG_PRUNE_ENABLED=yes` is set for the first time.
+For more granular control, you can create a `/sshkeys/prune.conf` file with client-specific retention policies. This file uses YAML format for better validation and will be automatically created with default values when `BORG_PRUNE_ENABLED=yes` is set for the first time.
 
-**Note**: When using a config file, do not set `BORG_PRUNE_KEEP_*` environment variables as this will cause the container to fail startup.
+**Note**: When using a config file, do not set `BORG_PRUNE_KEEP_*` environment variables as this will cause the container to fail startup. The configuration file is validated on container startup and will fail if it contains errors.
 
 Example `/sshkeys/prune.conf`:
-```ini
+```yaml
 # Default retention for all clients
-[default]
-keep_daily = 7
-keep_weekly = 4
-keep_monthly = -1
-keep_yearly = -1
-enabled = yes
+default:
+  keep_daily: 7
+  keep_weekly: 4
+  keep_monthly: -1
+  keep_yearly: -1
+  enabled: yes
 
 # Production server - keep more backups
-[webserver]
-keep_daily = 14
-keep_weekly = 8
-keep_monthly = 12
-keep_yearly = 2
-enabled = yes
+webserver:
+  keep_daily: 14
+  keep_weekly: 8
+  keep_monthly: 12
+  keep_yearly: 2
+  enabled: yes
 
 # Development machine - keep fewer backups
-[dev-laptop]
-keep_daily = 3
-keep_weekly = 2
-keep_monthly = 0
-keep_yearly = 0
-enabled = yes
+dev-laptop:
+  keep_daily: 3
+  keep_weekly: 2
+  keep_monthly: -1
+  keep_yearly: -1
+  enabled: yes
 
 # Disable pruning for specific client
-[archive-server]
-enabled = no
+archive-server:
+  enabled: no
 ```
 
 

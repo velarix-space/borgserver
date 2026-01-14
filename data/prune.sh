@@ -7,6 +7,9 @@ set -e
 BORG_DATA_DIR=${BORG_DATA_DIR:-/backup}
 CONFIG_DIR=${CONFIG_DIR:-/sshkeys}
 LOG_FILE=${PRUNE_LOG_FILE:-/var/log/borg-prune.log}
+CONFIG_FILE="${CONFIG_DIR}/prune.conf"
+CONFIG_CACHE="/tmp/prune-config-cache.json"
+PARSER_SCRIPT="/prune_config.py"
 
 # Default prune options from environment (used if no config file exists)
 DEFAULT_KEEP_DAILY=${BORG_PRUNE_KEEP_DAILY:-7}
@@ -18,140 +21,68 @@ log() {
     echo "[$(date '+%Y-%m-%d %H:%M:%S')] $*" | tee -a "${LOG_FILE}"
 }
 
-# Function to read prune config for a specific client
+# Load and cache configuration on first run
+load_config_cache() {
+    if [ -f "${CONFIG_FILE}" ]; then
+        log "INFO: Loading configuration from ${CONFIG_FILE}"
+        if ! python3 "${PARSER_SCRIPT}" cache "${CONFIG_FILE}" > "${CONFIG_CACHE}" 2>&1; then
+            log "ERROR: Failed to parse configuration file"
+            cat "${CONFIG_CACHE}"
+            rm -f "${CONFIG_CACHE}"
+            exit 1
+        fi
+        log "INFO: Configuration cached successfully"
+    else
+        log "INFO: No config file found, using environment variable defaults"
+        # Create a minimal cache with just defaults
+        cat > "${CONFIG_CACHE}" << EOF
+{
+  "default": {
+    "keep_daily": ${DEFAULT_KEEP_DAILY},
+    "keep_weekly": ${DEFAULT_KEEP_WEEKLY},
+    "keep_monthly": ${DEFAULT_KEEP_MONTHLY},
+    "keep_yearly": ${DEFAULT_KEEP_YEARLY},
+    "keep_within": null,
+    "enabled": true
+  }
+}
+EOF
+    fi
+}
+
+# Get configuration for a specific client from cache
 get_client_prune_config() {
     local client_name=$1
-    local config_file="${CONFIG_DIR}/prune.conf"
     
-    # Check if config file exists
-    if [ -f "${config_file}" ]; then
-        # Try to find client-specific config in the file
-        local section_found=false
-        local in_section=false
-        local config_values=""
-        
-        while IFS= read -r line || [ -n "$line" ]; do
-            # Skip comments and empty lines
-            [[ "$line" =~ ^[[:space:]]*# ]] && continue
-            [[ -z "$line" ]] && continue
-            
-            # Check for section header
-            if [[ "$line" =~ ^\[(.*)\] ]]; then
-                section="${BASH_REMATCH[1]}"
-                if [ "$section" == "$client_name" ]; then
-                    in_section=true
-                    section_found=true
-                elif [ "$section" == "default" ]; then
-                    # Save default values but continue looking for client-specific
-                    in_section=true
-                else
-                    in_section=false
-                fi
-                continue
-            fi
-            
-            # Parse configuration values when in the right section
-            if [ "$in_section" = true ]; then
-                if [[ "$line" =~ ^[[:space:]]*([^=]+)[[:space:]]*=[[:space:]]*(.+)[[:space:]]*$ ]]; then
-                    key="${BASH_REMATCH[1]}"
-                    value="${BASH_REMATCH[2]}"
-                    # Trim whitespace
-                    key=$(echo "$key" | xargs)
-                    value=$(echo "$value" | xargs)
-                    
-                    # Sanitize key to prevent code injection - only allow alphanumeric and underscore
-                    if [[ ! "$key" =~ ^[a-zA-Z_][a-zA-Z0-9_]*$ ]]; then
-                        continue
-                    fi
-                    
-                    # Sanitize value to prevent code injection
-                    value=$(printf '%s' "$value" | sed "s/['\"]//g")
-                    
-                    # Normalize key to lowercase for consistency
-                    key_lower=$(echo "$key" | tr '[:upper:]' '[:lower:]')
-                    
-                    # Validate values based on key type
-                    case "$key_lower" in
-                        keep_daily|keep_weekly|keep_monthly|keep_yearly)
-                            # Must be -1 (disabled) or a positive integer
-                            if ! [[ "$value" =~ ^(-1|[0-9]+)$ ]]; then
-                                log "WARNING: Invalid numeric value '$value' for $key (must be -1 or positive integer), skipping"
-                                continue
-                            fi
-                            ;;
-                        keep_within)
-                            # Must match borg time format: digits followed by d, w, m, or y (case insensitive)
-                            if ! [[ "$value" =~ ^[0-9]+[dwmyDWMY]$ ]]; then
-                                log "WARNING: Invalid time format '$value' for $key (expected format: <number><d|w|m|y>), skipping"
-                                continue
-                            fi
-                            ;;
-                        enabled)
-                            # Must be yes or no
-                            if [[ "$value" != "yes" ]] && [[ "$value" != "no" ]]; then
-                                log "WARNING: Invalid value '$value' for $key (must be 'yes' or 'no'), skipping"
-                                continue
-                            fi
-                            ;;
-                    esac
-                    
-                    if [ "$section_found" = true ] && [ "$section" == "$client_name" ]; then
-                        # Client-specific config takes precedence
-                        case "$key_lower" in
-                            keep_daily)
-                                CLIENT_KEEP_DAILY="$value"
-                                ;;
-                            keep_weekly)
-                                CLIENT_KEEP_WEEKLY="$value"
-                                ;;
-                            keep_monthly)
-                                CLIENT_KEEP_MONTHLY="$value"
-                                ;;
-                            keep_yearly)
-                                CLIENT_KEEP_YEARLY="$value"
-                                ;;
-                            keep_within)
-                                CLIENT_KEEP_WITHIN="$value"
-                                ;;
-                            enabled)
-                                CLIENT_ENABLED="$value"
-                                ;;
-                        esac
-                    elif [ "$section" == "default" ]; then
-                        # Use default values if client-specific not set
-                        case "$key_lower" in
-                            keep_daily)
-                                [ -z "$CLIENT_KEEP_DAILY" ] && CLIENT_KEEP_DAILY="$value"
-                                ;;
-                            keep_weekly)
-                                [ -z "$CLIENT_KEEP_WEEKLY" ] && CLIENT_KEEP_WEEKLY="$value"
-                                ;;
-                            keep_monthly)
-                                [ -z "$CLIENT_KEEP_MONTHLY" ] && CLIENT_KEEP_MONTHLY="$value"
-                                ;;
-                            keep_yearly)
-                                [ -z "$CLIENT_KEEP_YEARLY" ] && CLIENT_KEEP_YEARLY="$value"
-                                ;;
-                            keep_within)
-                                [ -z "$CLIENT_KEEP_WITHIN" ] && CLIENT_KEEP_WITHIN="$value"
-                                ;;
-                            enabled)
-                                [ -z "$CLIENT_ENABLED" ] && CLIENT_ENABLED="$value"
-                                ;;
-                        esac
-                    fi
-                fi
-            fi
-        done < "${config_file}"
+    # Extract client config from cache, falling back to default
+    local client_config=$(python3 -c "
+import json, sys
+with open('${CONFIG_CACHE}') as f:
+    config = json.load(f)
+    
+client = config.get('${client_name}', {})
+default = config.get('default', {})
+
+# Merge with defaults
+result = default.copy()
+result.update(client)
+
+# Export as shell variables
+for key, value in result.items():
+    if value is None:
+        continue
+    if isinstance(value, bool):
+        value = 'yes' if value else 'no'
+    print(f'{key.upper()}={value}')
+" 2>/dev/null)
+    
+    if [ -z "$client_config" ]; then
+        log "ERROR: Failed to get config for client '${client_name}'"
+        return 1
     fi
     
-    # Fall back to environment variables if no config found
-    CLIENT_KEEP_DAILY=${CLIENT_KEEP_DAILY:-$DEFAULT_KEEP_DAILY}
-    CLIENT_KEEP_WEEKLY=${CLIENT_KEEP_WEEKLY:-$DEFAULT_KEEP_WEEKLY}
-    CLIENT_KEEP_MONTHLY=${CLIENT_KEEP_MONTHLY:-$DEFAULT_KEEP_MONTHLY}
-    CLIENT_KEEP_YEARLY=${CLIENT_KEEP_YEARLY:-$DEFAULT_KEEP_YEARLY}
-    CLIENT_KEEP_WITHIN=${CLIENT_KEEP_WITHIN:-}
-    CLIENT_ENABLED=${CLIENT_ENABLED:-yes}
+    # Parse and export the config variables
+    eval "$client_config"
 }
 
 # Function to prune a single client repository
@@ -166,11 +97,11 @@ prune_client_repo() {
     fi
     
     # Get client-specific configuration
-    unset CLIENT_KEEP_DAILY CLIENT_KEEP_WEEKLY CLIENT_KEEP_MONTHLY CLIENT_KEEP_YEARLY CLIENT_KEEP_WITHIN CLIENT_ENABLED
+    unset KEEP_DAILY KEEP_WEEKLY KEEP_MONTHLY KEEP_YEARLY KEEP_WITHIN ENABLED
     get_client_prune_config "${client_name}"
     
     # Check if pruning is enabled for this client
-    if [ "${CLIENT_ENABLED}" != "yes" ]; then
+    if [ "${ENABLED}" != "yes" ]; then
         log "INFO: Pruning disabled for client '${client_name}', skipping"
         return 2  # Return special code for disabled clients
     fi
@@ -180,24 +111,12 @@ prune_client_repo() {
     # Build prune command
     local prune_cmd="borg prune --list --stats"
     
-    # Validate and add retention options (check if numeric and greater than 0)
-    # -1 means disabled, so we skip those
-    if [ -n "${CLIENT_KEEP_DAILY}" ] && [[ "${CLIENT_KEEP_DAILY}" =~ ^(-1|[0-9]+)$ ]] && [ "${CLIENT_KEEP_DAILY}" -gt 0 ]; then
-        prune_cmd="${prune_cmd} --keep-daily=${CLIENT_KEEP_DAILY}"
-    fi
-    if [ -n "${CLIENT_KEEP_WEEKLY}" ] && [[ "${CLIENT_KEEP_WEEKLY}" =~ ^(-1|[0-9]+)$ ]] && [ "${CLIENT_KEEP_WEEKLY}" -gt 0 ]; then
-        prune_cmd="${prune_cmd} --keep-weekly=${CLIENT_KEEP_WEEKLY}"
-    fi
-    if [ -n "${CLIENT_KEEP_MONTHLY}" ] && [[ "${CLIENT_KEEP_MONTHLY}" =~ ^(-1|[0-9]+)$ ]] && [ "${CLIENT_KEEP_MONTHLY}" -gt 0 ]; then
-        prune_cmd="${prune_cmd} --keep-monthly=${CLIENT_KEEP_MONTHLY}"
-    fi
-    if [ -n "${CLIENT_KEEP_YEARLY}" ] && [[ "${CLIENT_KEEP_YEARLY}" =~ ^(-1|[0-9]+)$ ]] && [ "${CLIENT_KEEP_YEARLY}" -gt 0 ]; then
-        prune_cmd="${prune_cmd} --keep-yearly=${CLIENT_KEEP_YEARLY}"
-    fi
-    # Validate keep_within format: digits followed by d, w, m, or y (borg supported time units)
-    if [ -n "${CLIENT_KEEP_WITHIN}" ] && [[ "${CLIENT_KEEP_WITHIN}" =~ ^[0-9]+[dwmyDWMY]$ ]]; then
-        prune_cmd="${prune_cmd} --keep-within=${CLIENT_KEEP_WITHIN}"
-    fi
+    # Add retention options (skip if -1 or not set)
+    [ -n "${KEEP_DAILY}" ] && [ "${KEEP_DAILY}" -gt 0 ] && prune_cmd="${prune_cmd} --keep-daily=${KEEP_DAILY}"
+    [ -n "${KEEP_WEEKLY}" ] && [ "${KEEP_WEEKLY}" -gt 0 ] && prune_cmd="${prune_cmd} --keep-weekly=${KEEP_WEEKLY}"
+    [ -n "${KEEP_MONTHLY}" ] && [ "${KEEP_MONTHLY}" -gt 0 ] && prune_cmd="${prune_cmd} --keep-monthly=${KEEP_MONTHLY}"
+    [ -n "${KEEP_YEARLY}" ] && [ "${KEEP_YEARLY}" -gt 0 ] && prune_cmd="${prune_cmd} --keep-yearly=${KEEP_YEARLY}"
+    [ -n "${KEEP_WITHIN}" ] && prune_cmd="${prune_cmd} --keep-within=${KEEP_WITHIN}"
     
     prune_cmd="${prune_cmd} ${repo_path}"
     
@@ -232,6 +151,9 @@ main() {
         log "INFO: Borg prune is disabled via BORG_PRUNE_ENABLED=no"
         exit 0
     fi
+    
+    # Load and cache configuration
+    load_config_cache
     
     # Find all client repositories
     if [ ! -d "${BORG_DATA_DIR}" ]; then

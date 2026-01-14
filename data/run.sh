@@ -114,14 +114,23 @@ if [ "${BORG_PRUNE_ENABLED}" == "yes" ]; then
             exit 1
         fi
         echo "  ** Using existing prune configuration at ${SSH_KEY_DIR}/prune.conf"
+        
+        # Validate configuration file on startup
+        echo "  ** Validating configuration file..."
+        if ! python3 /prune_config.py validate "${SSH_KEY_DIR}/prune.conf" 2>&1; then
+            echo "ERROR: Configuration file validation failed!"
+            echo "       Please fix the errors in ${SSH_KEY_DIR}/prune.conf"
+            exit 1
+        fi
+        echo "  ** Configuration validated successfully"
     else
-        # No config file - create one from example or use env vars
+        # No config file - create one from example
         echo "  ** Creating default prune configuration at ${SSH_KEY_DIR}/prune.conf"
         cp /prune.conf.example ${SSH_KEY_DIR}/prune.conf
     fi
     
-    # Make prune script executable
-    chmod +x /prune.sh
+    # Make prune script and parser executable
+    chmod +x /prune.sh /prune_config.py
     
     # Setup cron for automatic pruning
     mkdir -p /var/log

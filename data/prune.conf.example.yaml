@@ -1,0 +1,56 @@
+# Borg Prune Configuration (YAML)
+#
+# This file configures automatic pruning rules for each client.
+# Pruning removes old backup archives according to retention policies.
+#
+# Format:
+#   client_name:
+#     keep_daily: 7
+#     keep_weekly: 4
+#     keep_monthly: -1
+#     keep_yearly: -1
+#     keep_within: "14d"
+#     enabled: yes
+#
+# Options:
+#   keep_daily: Number of daily backups to keep (-1 to disable)
+#   keep_weekly: Number of weekly backups to keep (-1 to disable)
+#   keep_monthly: Number of monthly backups to keep (-1 to disable)
+#   keep_yearly: Number of yearly backups to keep (-1 to disable)
+#   keep_within: Keep all archives within this time period (e.g., "14d", "2m", "1y")
+#   enabled: Set to 'no' or 'false' to disable pruning for this client
+#
+# The 'default' section applies to all clients without specific configuration.
+# Client-specific sections override the default settings.
+
+default:
+  keep_daily: 7
+  keep_weekly: 4
+  keep_monthly: -1
+  keep_yearly: -1
+  enabled: yes
+
+# Example client-specific configuration:
+#
+# webserver:
+#   keep_daily: 14
+#   keep_weekly: 8
+#   keep_monthly: 12
+#   keep_yearly: 2
+#   enabled: yes
+#
+# development-machine:
+#   keep_daily: 3
+#   keep_weekly: 2
+#   keep_monthly: -1
+#   keep_yearly: -1
+#   enabled: yes
+#
+# archive-server:
+#   keep_within: "30d"
+#   keep_monthly: 24
+#   keep_yearly: 5
+#   enabled: yes
+#
+# disabled-client:
+#   enabled: no
