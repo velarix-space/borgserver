@@ -1,0 +1,26 @@
+# Borg Prune Configuration
+# This file defines the prune/retention rules for each client repository
+# 
+# Global defaults (applied to all clients unless overridden)
+# Use -1 for month and year to keep all archives from those periods
+defaults:
+  keep_hourly: 24      # Keep hourly backups for the last 24 hours
+  keep_daily: 7        # Keep daily backups for the last 7 days
+  keep_weekly: 4       # Keep weekly backups for the last 4 weeks
+  keep_monthly: -1     # Keep all monthly backups
+  keep_yearly: -1      # Keep all yearly backups
+
+# Per-client prune rules (overrides defaults)
+# The key must match the SSH key filename in /sshkeys/clients/
+clients:
+  # Example: Custom rules for a specific client
+  # webserver.example.com:
+  #   keep_hourly: 48
+  #   keep_daily: 14
+  #   keep_weekly: 8
+  #   keep_monthly: 6
+  #   keep_yearly: 2
+  
+  # Example: Use defaults for a client (can be omitted or empty)
+  # backup-client:
+  #   {}
