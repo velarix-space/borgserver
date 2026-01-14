@@ -74,7 +74,7 @@ run_prune() {
     # Check immediate subdirectories
     if [ -d "${client_dir}" ]; then
         for subdir in "${client_dir}"/*; do
-            if [ -d "${subdir}" ] && [ "${subdir}" != "${client_dir}" ]; then
+            if [ -d "${subdir}" ]; then
                 if borg info "${subdir}" &>/dev/null; then
                     repos+=("${subdir}")
                 fi

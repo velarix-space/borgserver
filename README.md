@@ -112,7 +112,7 @@ When *BORG_APPEND_ONLY* is active, clients cannot manually prune their repos, bu
 
 If you need manual control or want to prune other clients' repos, you can declare one client to be the borg "admin".
 
-This client will have **full access to all repos of any client!** So he's able to add/prune/... what ever he wants.
+This client will have **full access to all repos of any client!** So he's able to add/prune/... whatever he wants.
 
 To declare a client as admin, set this variable to the name of the client/sshkey you've added to the /sshkeys/clients directory.
 
