@@ -10,7 +10,6 @@ groupmod -o -g "$PGID" borg &>/dev/null
 BORG_DATA_DIR=/backup
 SSH_KEY_DIR=/sshkeys
 BORG_CMD='cd ${BORG_DATA_DIR}/${client_name}; borg serve --restrict-to-path ${BORG_DATA_DIR}/${client_name} ${BORG_SERVE_ARGS}'
-BORG_WRAPPER_CMD='BORG_CLIENT_NAME=${client_name} BORG_DATA_DIR=${BORG_DATA_DIR} BORG_APPEND_ONLY=${BORG_APPEND_ONLY} BORG_SERVE_CMD="cd ${BORG_DATA_DIR}/${client_name} && borg serve --restrict-to-path ${BORG_DATA_DIR}/${client_name} ${BORG_SERVE_ARGS}" /borg-wrapper.sh'
 AUTHORIZED_KEYS_PATH=/home/borg/.ssh/authorized_keys
 
 # Append only mode?
@@ -93,7 +92,7 @@ for keyfile in $(find "${SSH_KEY_DIR}/clients" ! -regex '.*/\..*' -a -type f); d
 		unset client_name
 	elif [ "${BORG_APPEND_ONLY}" == "yes" ] ; then
 		# Use wrapper script for append-only mode to enable automatic pruning
-		borg_cmd="${BORG_WRAPPER_CMD} --append-only"
+		borg_cmd='/borg-wrapper.sh ${client_name}'
 		echo "   ** Auto-prune enabled for '${client_name}' **"
 	fi
 
