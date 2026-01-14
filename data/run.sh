@@ -47,10 +47,12 @@ if [ "${BORG_PRUNE_ENABLED}" == "yes" ]; then
 		exit 1
 	fi
 	
-	# Validate cron schedule format
-	if ! echo "${BORG_PRUNE_SCHEDULE}" | grep -qE '^[0-9*/,-]+ +[0-9*/,-]+ +[0-9*/,-]+ +[0-9*/,-]+ +[0-9*/,-]+$'; then
+	# Validate cron schedule format (basic validation for common patterns)
+	# Accepts: numbers (0-59), *, ranges (1-5), steps (*/5), lists (1,2,3)
+	if ! echo "${BORG_PRUNE_SCHEDULE}" | grep -qE '^([0-9*,/-]+ ){4}[0-9*,/-]+$'; then
 		echo "ERROR: Invalid cron schedule format: ${BORG_PRUNE_SCHEDULE}"
 		echo "Expected format: 'minute hour day month weekday' (e.g., '0 2 * * *')"
+		echo "Allowed characters: 0-9, *, /, -, comma, and spaces between fields"
 		exit 1
 	fi
 	

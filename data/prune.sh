@@ -51,18 +51,28 @@ fi
 
 log "Configuration validated successfully"
 
-# If validation only mode, exit here
-if [ ${VALIDATE_ONLY} -eq 1 ]; then
-    log "Validation mode: Config is valid"
-    exit 0
-fi
-
-# Read default retention rules
+# Read and validate default retention rules
 default_hourly=$(yq eval '.defaults.keep_hourly // 0' "${PRUNE_CONFIG}")
 default_daily=$(yq eval '.defaults.keep_daily // 7' "${PRUNE_CONFIG}")
 default_weekly=$(yq eval '.defaults.keep_weekly // 4' "${PRUNE_CONFIG}")
 default_monthly=$(yq eval '.defaults.keep_monthly // -1' "${PRUNE_CONFIG}")
 default_yearly=$(yq eval '.defaults.keep_yearly // -1' "${PRUNE_CONFIG}")
+
+# Validate that default values are numeric
+for val_name in "keep_hourly:${default_hourly}" "keep_daily:${default_daily}" "keep_weekly:${default_weekly}" "keep_monthly:${default_monthly}" "keep_yearly:${default_yearly}"; do
+    val="${val_name#*:}"
+    name="${val_name%:*}"
+    if ! [[ "${val}" =~ ^-?[0-9]+$ ]]; then
+        error "Invalid default value for ${name}: ${val} (must be a number)"
+        exit 1
+    fi
+done
+
+# If validation only mode, exit here
+if [ ${VALIDATE_ONLY} -eq 1 ]; then
+    log "Validation mode: Config is valid"
+    exit 0
+fi
 
 log "Default retention rules: hourly=${default_hourly}, daily=${default_daily}, weekly=${default_weekly}, monthly=${default_monthly}, yearly=${default_yearly}"
 
@@ -77,6 +87,14 @@ build_prune_args() {
     keep_weekly=$(yq eval ".clients.\"${client_name}\".keep_weekly // ${default_weekly}" "${PRUNE_CONFIG}")
     keep_monthly=$(yq eval ".clients.\"${client_name}\".keep_monthly // ${default_monthly}" "${PRUNE_CONFIG}")
     keep_yearly=$(yq eval ".clients.\"${client_name}\".keep_yearly // ${default_yearly}" "${PRUNE_CONFIG}")
+    
+    # Validate that values are numeric
+    for val in "${keep_hourly}" "${keep_daily}" "${keep_weekly}" "${keep_monthly}" "${keep_yearly}"; do
+        if ! [[ "${val}" =~ ^-?[0-9]+$ ]]; then
+            error "Invalid retention value for ${client_name}: ${val}"
+            return 1
+        fi
+    done
     
     local args=""
     
@@ -135,13 +153,14 @@ for repo_path in "${BORG_DATA_DIR}"/*; do
     
     log "Prune args for ${client_name}: ${prune_args}"
     
-    # Run borg prune
-    if su - borg -c "borg prune ${prune_args} ${repo_path}" 2>&1 | while IFS= read -r line; do log "${line}"; done; then
+    # Run borg prune (prune_args is intentionally unquoted for word splitting)
+    # shellcheck disable=SC2086
+    if su - borg -c "borg prune ${prune_args} '${repo_path}'" 2>&1 | while IFS= read -r line; do log "${line}"; done; then
         log "Prune completed for ${client_name}"
         
         # Run borg compact to free space
         log "Running compact for ${client_name}..."
-        if su - borg -c "borg compact ${repo_path}" 2>&1 | while IFS= read -r line; do log "${line}"; done; then
+        if su - borg -c "borg compact '${repo_path}'" 2>&1 | while IFS= read -r line; do log "${line}"; done; then
             log "Compact completed for ${client_name}"
             ((prune_count++))
         else
