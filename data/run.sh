@@ -27,8 +27,9 @@ echo "########################################################"
 
 
 # Precheck if BORG_ADMIN is set
-if [ "${BORG_APPEND_ONLY}" == "yes" ] && [ -z "${BORG_ADMIN}" ] ; then
-	echo "WARNING: BORG_APPEND_ONLY is active, but no BORG_ADMIN was specified!"
+if [ "${BORG_APPEND_ONLY}" == "yes" ] && [ -z "${BORG_ADMIN}" ] && [ "${BORG_PRUNE_ENABLED}" != "yes" ] ; then
+	echo "WARNING: BORG_APPEND_ONLY is active, but no BORG_ADMIN or BORG_PRUNE_ENABLED was specified!"
+	echo "         This means old backups will never be removed automatically."
 fi
 
 # Precheck directories & client ssh-keys
@@ -92,6 +93,46 @@ fi
 chown -R borg:borg ${BORG_DATA_DIR}
 chown borg:borg ${AUTHORIZED_KEYS_PATH}
 chmod 600 ${AUTHORIZED_KEYS_PATH}
+
+echo "########################################################"
+echo " * Setting up automatic prune..."
+
+# Setup prune functionality
+BORG_PRUNE_ENABLED=${BORG_PRUNE_ENABLED:-no}
+BORG_PRUNE_SCHEDULE=${BORG_PRUNE_SCHEDULE:-"0 3 * * *"}
+
+if [ "${BORG_PRUNE_ENABLED}" == "yes" ]; then
+    echo "  ** Prune is ENABLED"
+    echo "  ** Schedule: ${BORG_PRUNE_SCHEDULE}"
+    
+    # Create prune config if it doesn't exist
+    if [ ! -f "${SSH_KEY_DIR}/prune.conf" ]; then
+        echo "  ** Creating default prune configuration at ${SSH_KEY_DIR}/prune.conf"
+        cp /prune.conf.example ${SSH_KEY_DIR}/prune.conf
+    else
+        echo "  ** Using existing prune configuration at ${SSH_KEY_DIR}/prune.conf"
+    fi
+    
+    # Make prune script executable
+    chmod +x /prune.sh
+    
+    # Setup cron for automatic pruning
+    mkdir -p /var/log
+    touch /var/log/borg-prune.log
+    chown borg:borg /var/log/borg-prune.log
+    
+    # Create cron job
+    echo "${BORG_PRUNE_SCHEDULE} root BORG_DATA_DIR=${BORG_DATA_DIR} CONFIG_DIR=${SSH_KEY_DIR} /prune.sh" > /etc/cron.d/borg-prune
+    chmod 0644 /etc/cron.d/borg-prune
+    
+    echo "  ** Cron job installed for automatic pruning"
+    
+    # Start cron daemon
+    cron
+    echo "  ** Cron daemon started"
+else
+    echo "  ** Prune is DISABLED (set BORG_PRUNE_ENABLED=yes to enable)"
+fi
 
 echo "########################################################"
 echo " * Init done! Starting SSH-Daemon..."

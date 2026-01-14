@@ -18,4 +18,17 @@ services:
 
    # Filename of Admins SSH-Key; has full access to all repos
    BORG_ADMIN: ""
+
+   # Automatic Prune Configuration
+   # Set to "yes" to enable automatic pruning
+   BORG_PRUNE_ENABLED: "no"
+
+   # Cron schedule for automatic pruning (default: daily at 3 AM)
+   BORG_PRUNE_SCHEDULE: "0 3 * * *"
+
+   # Default prune retention policy (used if no prune.conf file exists)
+   BORG_PRUNE_KEEP_DAILY: "7"
+   BORG_PRUNE_KEEP_WEEKLY: "4"
+   BORG_PRUNE_KEEP_MONTHLY: "6"
+   BORG_PRUNE_KEEP_YEARLY: "1"
   restart: unless-stopped

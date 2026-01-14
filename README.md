@@ -71,6 +71,82 @@ borg prune --keep-last 100 --keep-weekly 1 (...) borgserver:/clientA/clientA
 ```
 
 
+#### BORG_PRUNE_ENABLED
+Set to **"yes"** to enable automatic pruning of backup repositories. When enabled with `BORG_APPEND_ONLY=yes`, the server will automatically run prune operations according to configured retention policies, allowing you to keep append-only mode active without requiring a `BORG_ADMIN` client.
+
+This is the recommended approach for automatic cleanup as it provides:
+- Per-client pruning rules via configuration file
+- Automatic scheduled pruning via cron
+- Server-side execution without client access
+
+##### Example
+```
+docker run --rm -e BORG_APPEND_ONLY="yes" -e BORG_PRUNE_ENABLED="yes" (...) nold360/borgserver
+```
+
+#### BORG_PRUNE_SCHEDULE
+Cron schedule for automatic pruning when `BORG_PRUNE_ENABLED=yes`. Default is `"0 3 * * *"` (daily at 3 AM).
+
+##### Example
+```
+# Run pruning every Sunday at 2 AM
+docker run --rm -e BORG_PRUNE_ENABLED="yes" -e BORG_PRUNE_SCHEDULE="0 2 * * 0" (...) nold360/borgserver
+```
+
+#### BORG_PRUNE_KEEP_DAILY, BORG_PRUNE_KEEP_WEEKLY, BORG_PRUNE_KEEP_MONTHLY, BORG_PRUNE_KEEP_YEARLY
+Default retention policies for automatic pruning. These are used when no `/sshkeys/prune.conf` file exists.
+
+- `BORG_PRUNE_KEEP_DAILY`: Number of daily backups to keep (default: 7)
+- `BORG_PRUNE_KEEP_WEEKLY`: Number of weekly backups to keep (default: 4)
+- `BORG_PRUNE_KEEP_MONTHLY`: Number of monthly backups to keep (default: 6)
+- `BORG_PRUNE_KEEP_YEARLY`: Number of yearly backups to keep (default: 1)
+
+##### Example
+```
+docker run --rm \
+  -e BORG_PRUNE_ENABLED="yes" \
+  -e BORG_PRUNE_KEEP_DAILY="14" \
+  -e BORG_PRUNE_KEEP_WEEKLY="8" \
+  -e BORG_PRUNE_KEEP_MONTHLY="12" \
+  -e BORG_PRUNE_KEEP_YEARLY="2" \
+  (...) nold360/borgserver
+```
+
+#### Per-Client Prune Configuration
+For more granular control, you can create a `/sshkeys/prune.conf` file with client-specific retention policies. This file will be automatically created with default values when `BORG_PRUNE_ENABLED=yes` is set for the first time.
+
+Example `/sshkeys/prune.conf`:
+```ini
+# Default retention for all clients
+[default]
+keep_daily = 7
+keep_weekly = 4
+keep_monthly = 6
+keep_yearly = 1
+enabled = yes
+
+# Production server - keep more backups
+[webserver]
+keep_daily = 14
+keep_weekly = 8
+keep_monthly = 12
+keep_yearly = 2
+enabled = yes
+
+# Development machine - keep fewer backups
+[dev-laptop]
+keep_daily = 3
+keep_weekly = 2
+keep_monthly = 0
+keep_yearly = 0
+enabled = yes
+
+# Disable pruning for specific client
+[archive-server]
+enabled = no
+```
+
+
 #### PUID
 Used to set the user id of the `borg` user inside the container. This can be useful when the container has to access resources on the host with a specific user id.
 
