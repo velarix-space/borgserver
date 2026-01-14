@@ -3,6 +3,20 @@
 # Based on Debian
 ############################################################
 ARG BASE_IMAGE=debian:bookworm-slim
+
+# Build stage
+FROM mcr.microsoft.com/dotnet/sdk:8.0 AS build
+WORKDIR /source
+
+# Copy csproj and restore dependencies
+COPY ./src/*.csproj ./
+RUN dotnet restore
+
+# Copy everything else and build
+COPY ./src/. ./
+RUN dotnet publish -c Release -o /app/publish
+
+# Runtime stage
 FROM $BASE_IMAGE
 
 LABEL org.opencontainers.image.source="https://github.com/Nold360/borgserver"
@@ -13,10 +27,14 @@ VOLUME /sshkeys
 # Volume for borg repositories
 VOLUME /backup
 
+# Volume for config
+VOLUME /config
+
 ENV DEBIAN_FRONTEND=noninteractive
 
 # Install .NET Runtime and dependencies
 RUN apt-get update && apt-get -y --no-install-recommends install \
+		ca-certificates \
 		wget \
 		borgbackup openssh-server && \
 		wget https://packages.microsoft.com/config/debian/12/packages-microsoft-prod.deb -O packages-microsoft-prod.deb && \
@@ -34,12 +52,11 @@ RUN apt-get update && apt-get -y --no-install-recommends install \
 		rm -rf /var/lib/apt/lists/* /var/tmp/* /tmp/*
 
 COPY ./data/sshd_config /etc/ssh/sshd_config
-COPY ./src /app/src
 
-# Build the application
-RUN cd /app/src && dotnet publish -c Release -o /app/publish
+# Copy built application from build stage
+COPY --from=build /app/publish /app
 
 # Default SSH-Port for clients
 EXPOSE 22
 
-ENTRYPOINT ["dotnet", "/app/publish/BorgServer.dll"]
+ENTRYPOINT ["dotnet", "/app/BorgServer.dll"]
