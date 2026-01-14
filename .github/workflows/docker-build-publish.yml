@@ -40,12 +40,28 @@ jobs:
         uses: actions/checkout@v4
 
       - name: Set up QEMU
+        if: github.event_name != 'pull_request'
         uses: docker/setup-qemu-action@v3
 
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v3
 
+      - name: Check if build should run
+        id: should-build
+        run: |
+          # For PRs, only build trixie-slim
+          if [ "${{ github.event_name }}" = "pull_request" ]; then
+            if [ "${{ matrix.base }}" = "trixie-slim" ]; then
+              echo "run=true" >> $GITHUB_OUTPUT
+            else
+              echo "run=false" >> $GITHUB_OUTPUT
+            fi
+          else
+            echo "run=true" >> $GITHUB_OUTPUT
+          fi
+
       - name: Prepare tags
+        if: steps.should-build.outputs.run == 'true'
         id: prepare-tags
         run: |
           # Split comma-separated tags and create proper tag list
@@ -70,30 +86,88 @@ jobs:
           echo "tags=${ALL_TAGS}" >> $GITHUB_OUTPUT
           echo "Generated tags: ${ALL_TAGS}"
 
+      - name: Set platforms
+        id: platforms
+        run: |
+          if [ "${{ github.event_name }}" = "pull_request" ]; then
+            echo "platforms=linux/amd64" >> $GITHUB_OUTPUT
+          else
+            echo "platforms=linux/386,linux/amd64,linux/arm/v7,linux/arm64" >> $GITHUB_OUTPUT
+          fi
+
       - name: Log in to Docker Hub
-        if: github.event_name != 'pull_request'
+        if: steps.should-build.outputs.run == 'true' && github.event_name != 'pull_request' && secrets.DOCKER_USERNAME != '' && secrets.DOCKER_PASSWORD != ''
         uses: docker/login-action@v3
         with:
           username: ${{ secrets.DOCKER_USERNAME }}
           password: ${{ secrets.DOCKER_PASSWORD }}
 
       - name: Log in to GitHub Container Registry
-        if: github.event_name != 'pull_request'
+        if: steps.should-build.outputs.run == 'true' && github.event_name != 'pull_request'
         uses: docker/login-action@v3
         with:
           registry: ghcr.io
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
+      - name: Determine push targets
+        if: steps.should-build.outputs.run == 'true'
+        id: push-targets
+        run: |
+          PUSH="false"
+          TAGS=""
+
+          if [ "${{ github.event_name }}" != "pull_request" ]; then
+            # Check which registries we can push to
+            HAS_DOCKERHUB="false"
+            HAS_GHCR="true"  # GITHUB_TOKEN is always available
+
+            if [ -n "${{ secrets.DOCKER_USERNAME }}" ] && [ -n "${{ secrets.DOCKER_PASSWORD }}" ]; then
+              HAS_DOCKERHUB="true"
+            fi
+
+            # Build tag list based on available registries
+            if [ "$HAS_DOCKERHUB" = "true" ] && [ "$HAS_GHCR" = "true" ]; then
+              TAGS="${{ steps.prepare-tags.outputs.tags }}"
+              PUSH="true"
+            elif [ "$HAS_DOCKERHUB" = "true" ]; then
+              # Only Docker Hub tags
+              TAGS_INPUT="${{ matrix.tags }}"
+              IFS=',' read -ra TAG_ARRAY <<< "$TAGS_INPUT"
+              for tag in "${TAG_ARRAY[@]}"; do
+                tag=$(echo "$tag" | xargs)
+                TAGS="${TAGS}${{ github.repository }}:${tag},"
+              done
+              TAGS=${TAGS%,}
+              PUSH="true"
+            elif [ "$HAS_GHCR" = "true" ]; then
+              # Only GHCR tags
+              TAGS_INPUT="${{ matrix.tags }}"
+              IFS=',' read -ra TAG_ARRAY <<< "$TAGS_INPUT"
+              for tag in "${TAG_ARRAY[@]}"; do
+                tag=$(echo "$tag" | xargs)
+                TAGS="${TAGS}ghcr.io/${{ github.repository }}:${tag},"
+              done
+              TAGS=${TAGS%,}
+              PUSH="true"
+            fi
+          fi
+
+          echo "push=${PUSH}" >> $GITHUB_OUTPUT
+          echo "tags=${TAGS}" >> $GITHUB_OUTPUT
+          echo "Push: ${PUSH}"
+          echo "Tags: ${TAGS}"
+
       - name: Build and push Docker image
+        if: steps.should-build.outputs.run == 'true'
         uses: docker/build-push-action@v5
         with:
           context: .
-          platforms: linux/386,linux/amd64,linux/arm/v7,linux/arm64
+          platforms: ${{ steps.platforms.outputs.platforms }}
           build-args: |
             BASE_IMAGE=debian:${{ matrix.base }}
-          push: ${{ github.event_name != 'pull_request' }}
-          tags: ${{ steps.prepare-tags.outputs.tags }}
+          push: ${{ steps.push-targets.outputs.push }}
+          tags: ${{ steps.push-targets.outputs.tags || steps.prepare-tags.outputs.tags }}
           labels: |
             org.opencontainers.image.source=${{ github.event.repository.html_url }}
             org.opencontainers.image.revision=${{ github.sha }}
