@@ -27,7 +27,6 @@ RUN apt-get update && apt-get -y --no-install-recommends install \
 
 COPY ./data/run.sh /run.sh
 COPY ./data/prune.sh /prune.sh
-COPY ./data/prune-cron.sh /prune-cron.sh
 COPY ./data/prune.conf.example /prune.conf.example
 COPY ./data/sshd_config /etc/ssh/sshd_config
 

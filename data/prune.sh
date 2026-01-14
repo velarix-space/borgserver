@@ -67,23 +67,26 @@ get_client_prune_config() {
                     # Sanitize value to prevent code injection
                     value=$(printf '%s' "$value" | sed "s/['\"]//g")
                     
+                    # Normalize key to lowercase for consistency
+                    key_lower=$(echo "$key" | tr '[:upper:]' '[:lower:]')
+                    
                     # Validate values based on key type
-                    case "$key" in
-                        keep_daily|KEEP_DAILY|keep_weekly|KEEP_WEEKLY|keep_monthly|KEEP_MONTHLY|keep_yearly|KEEP_YEARLY)
+                    case "$key_lower" in
+                        keep_daily|keep_weekly|keep_monthly|keep_yearly)
                             # Must be numeric
                             if ! [[ "$value" =~ ^[0-9]+$ ]]; then
                                 log "WARNING: Invalid numeric value '$value' for $key, skipping"
                                 continue
                             fi
                             ;;
-                        keep_within|KEEP_WITHIN)
-                            # Must match time format (e.g., 14d, 2m, 1y)
-                            if ! [[ "$value" =~ ^[0-9]+[HdwmyY]$ ]]; then
-                                log "WARNING: Invalid time format '$value' for $key, skipping"
+                        keep_within)
+                            # Must match borg time format: digits followed by d, w, m, or y (case insensitive)
+                            if ! [[ "$value" =~ ^[0-9]+[dwmyDWMY]$ ]]; then
+                                log "WARNING: Invalid time format '$value' for $key (expected format: <number><d|w|m|y>), skipping"
                                 continue
                             fi
                             ;;
-                        enabled|ENABLED)
+                        enabled)
                             # Must be yes or no
                             if [[ "$value" != "yes" ]] && [[ "$value" != "no" ]]; then
                                 log "WARNING: Invalid value '$value' for $key (must be 'yes' or 'no'), skipping"
@@ -94,45 +97,45 @@ get_client_prune_config() {
                     
                     if [ "$section_found" = true ] && [ "$section" == "$client_name" ]; then
                         # Client-specific config takes precedence
-                        case "$key" in
-                            keep_daily|KEEP_DAILY)
+                        case "$key_lower" in
+                            keep_daily)
                                 CLIENT_KEEP_DAILY="$value"
                                 ;;
-                            keep_weekly|KEEP_WEEKLY)
+                            keep_weekly)
                                 CLIENT_KEEP_WEEKLY="$value"
                                 ;;
-                            keep_monthly|KEEP_MONTHLY)
+                            keep_monthly)
                                 CLIENT_KEEP_MONTHLY="$value"
                                 ;;
-                            keep_yearly|KEEP_YEARLY)
+                            keep_yearly)
                                 CLIENT_KEEP_YEARLY="$value"
                                 ;;
-                            keep_within|KEEP_WITHIN)
+                            keep_within)
                                 CLIENT_KEEP_WITHIN="$value"
                                 ;;
-                            enabled|ENABLED)
+                            enabled)
                                 CLIENT_ENABLED="$value"
                                 ;;
                         esac
                     elif [ "$section" == "default" ]; then
                         # Use default values if client-specific not set
-                        case "$key" in
-                            keep_daily|KEEP_DAILY)
+                        case "$key_lower" in
+                            keep_daily)
                                 [ -z "$CLIENT_KEEP_DAILY" ] && CLIENT_KEEP_DAILY="$value"
                                 ;;
-                            keep_weekly|KEEP_WEEKLY)
+                            keep_weekly)
                                 [ -z "$CLIENT_KEEP_WEEKLY" ] && CLIENT_KEEP_WEEKLY="$value"
                                 ;;
-                            keep_monthly|KEEP_MONTHLY)
+                            keep_monthly)
                                 [ -z "$CLIENT_KEEP_MONTHLY" ] && CLIENT_KEEP_MONTHLY="$value"
                                 ;;
-                            keep_yearly|KEEP_YEARLY)
+                            keep_yearly)
                                 [ -z "$CLIENT_KEEP_YEARLY" ] && CLIENT_KEEP_YEARLY="$value"
                                 ;;
-                            keep_within|KEEP_WITHIN)
+                            keep_within)
                                 [ -z "$CLIENT_KEEP_WITHIN" ] && CLIENT_KEEP_WITHIN="$value"
                                 ;;
-                            enabled|ENABLED)
+                            enabled)
                                 [ -z "$CLIENT_ENABLED" ] && CLIENT_ENABLED="$value"
                                 ;;
                         esac
@@ -190,8 +193,8 @@ prune_client_repo() {
     if [ -n "${CLIENT_KEEP_YEARLY}" ] && [[ "${CLIENT_KEEP_YEARLY}" =~ ^[0-9]+$ ]] && [ "${CLIENT_KEEP_YEARLY}" -gt 0 ]; then
         prune_cmd="${prune_cmd} --keep-yearly=${CLIENT_KEEP_YEARLY}"
     fi
-    # Validate keep_within format (e.g., 14d, 2m, 1y)
-    if [ -n "${CLIENT_KEEP_WITHIN}" ] && [[ "${CLIENT_KEEP_WITHIN}" =~ ^[0-9]+[HdwmyY]$ ]]; then
+    # Validate keep_within format: digits followed by d, w, m, or y (borg supported time units)
+    if [ -n "${CLIENT_KEEP_WITHIN}" ] && [[ "${CLIENT_KEEP_WITHIN}" =~ ^[0-9]+[dwmyDWMY]$ ]]; then
         prune_cmd="${prune_cmd} --keep-within=${CLIENT_KEEP_WITHIN}"
     fi
     

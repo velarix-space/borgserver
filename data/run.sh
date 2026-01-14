@@ -113,8 +113,8 @@ if [ "${BORG_PRUNE_ENABLED}" == "yes" ]; then
         echo "  ** Using existing prune configuration at ${SSH_KEY_DIR}/prune.conf"
     fi
     
-    # Make prune scripts executable
-    chmod +x /prune.sh /prune-cron.sh
+    # Make prune script executable
+    chmod +x /prune.sh
     
     # Setup cron for automatic pruning
     mkdir -p /var/log
