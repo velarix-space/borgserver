@@ -63,17 +63,47 @@ run_prune() {
     fi
     
     # Find all borg repositories in the client directory
-    # A borg repository contains a config file
-    local repos=$(find "${client_dir}" -name config -type f -path "*/data/config" -o -name config -type f -path "*/config" | sed 's|/config$||' | sort -u)
+    # Use borg info to validate they are actual borg repositories
+    local repos=()
+    while IFS= read -r -d '' potential_repo; do
+        # Check if this is a valid borg repository by trying to get info
+        if borg info "${potential_repo}" &>/dev/null 2>&1; then
+            repos+=("${potential_repo}")
+        fi
+    done < <(find "${client_dir}" -maxdepth 3 -type d -name "data" -exec dirname {} \; -print0 2>/dev/null)
     
-    if [ -z "${repos}" ]; then
+    # Also check the client_dir itself in case it's a repo
+    if [ -d "${client_dir}" ] && borg info "${client_dir}" &>/dev/null 2>&1; then
+        repos+=("${client_dir}")
+    fi
+    
+    # Also check immediate subdirectories
+    if [ -d "${client_dir}" ]; then
+        for subdir in "${client_dir}"/*; do
+            if [ -d "${subdir}" ] && borg info "${subdir}" &>/dev/null 2>&1; then
+                # Avoid duplicates
+                local already_added=0
+                for existing_repo in "${repos[@]}"; do
+                    if [ "${existing_repo}" = "${subdir}" ]; then
+                        already_added=1
+                        break
+                    fi
+                done
+                if [ ${already_added} -eq 0 ]; then
+                    repos+=("${subdir}")
+                fi
+            fi
+        done
+    fi
+    
+    if [ ${#repos[@]} -eq 0 ]; then
         log "No borg repositories found in ${client_dir}"
         return 0
     fi
     
     # Run prune on each repository
     local overall_status=0
-    while IFS= read -r repo_path; do
+    for repo_path in "${repos[@]}"; do
         # Build prune command with configured retention policy
         local prune_cmd="borg prune --list --stats"
         
@@ -88,19 +118,24 @@ run_prune() {
         
         log "Running prune for ${client} on repository ${repo_path}"
         
-        # Run prune as borg user with full access to the repository
-        eval "${prune_cmd}" 2>&1 | while read -r line; do
+        # Capture both output and exit status properly
+        local prune_output
+        local prune_status
+        prune_output=$(eval "${prune_cmd}" 2>&1)
+        prune_status=$?
+        
+        # Log the output
+        echo "${prune_output}" | while read -r line; do
             log "prune: ${line}"
         done
         
-        local prune_status=${PIPESTATUS[0]}
         if [ ${prune_status} -eq 0 ]; then
             log "Prune completed successfully for repository ${repo_path}"
         else
             log "Prune failed for repository ${repo_path} with status ${prune_status}"
             overall_status=${prune_status}
         fi
-    done <<< "${repos}"
+    done
     
     return ${overall_status}
 }
