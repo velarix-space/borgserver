@@ -16,16 +16,20 @@ VOLUME /backup
 ENV DEBIAN_FRONTEND=noninteractive
 
 RUN apt-get update && apt-get -y --no-install-recommends install \
-		borgbackup openssh-server cron wget && apt-get clean && \
-		wget -qO /usr/local/bin/yq https://github.com/mikefarah/yq/releases/latest/download/yq_linux_amd64 && \
-		chmod +x /usr/local/bin/yq && \
-		useradd -s /bin/bash -m -U borg && \
-		mkdir /home/borg/.ssh && \
+		borgbackup openssh-server cron ca-certificates curl && \
+		apt-get clean && \
+		rm -rf /var/lib/apt/lists/* /var/tmp/* /tmp/*
+
+RUN YQ_VERSION="v4.40.5" && \
+		curl -k -L "https://github.com/mikefarah/yq/releases/download/${YQ_VERSION}/yq_linux_amd64" -o /usr/local/bin/yq && \
+		chmod +x /usr/local/bin/yq
+
+RUN if ! id borg > /dev/null 2>&1; then useradd -s /bin/bash -m -U borg; fi && \
+		mkdir -p /home/borg/.ssh && \
 		chmod 700 /home/borg/.ssh && \
 		chown borg:borg /home/borg/.ssh && \
 		mkdir -p /run/sshd && \
-		rm -f /etc/ssh/ssh_host*key* && \
-		rm -rf /var/lib/apt/lists/* /var/tmp/* /tmp/*
+		rm -f /etc/ssh/ssh_host*key*
 
 COPY ./data/run.sh /run.sh
 COPY ./data/prune.sh /prune.sh

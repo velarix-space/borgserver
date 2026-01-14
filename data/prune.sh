@@ -43,7 +43,8 @@ if ! yq eval '.' "${PRUNE_CONFIG}" > /dev/null 2>&1; then
 fi
 
 # Validate schema - check for required keys
-if ! yq eval '.defaults' "${PRUNE_CONFIG}" > /dev/null 2>&1; then
+defaults_check=$(yq eval '.defaults' "${PRUNE_CONFIG}")
+if [ "${defaults_check}" == "null" ] || [ -z "${defaults_check}" ]; then
     error "Config file missing required 'defaults' section"
     exit 1
 fi

@@ -49,7 +49,8 @@ if [ "${BORG_PRUNE_ENABLED}" == "yes" ]; then
 	
 	# Validate config by running prune script in validation mode
 	export BORG_DATA_DIR
-	if ! /prune.sh --validate 2>&1 | head -5; then
+	export BORG_PRUNE_CONFIG
+	if ! /prune.sh --validate; then
 		echo "ERROR: Prune configuration validation failed!"
 		exit 1
 	fi
